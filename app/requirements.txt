@@ -3,3 +3,6 @@ uvicorn
 asyncpg
 sqlalchemy
 psycopg2-binary
+openai
+python-dotenv
+numpy

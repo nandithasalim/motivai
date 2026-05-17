@@ -18,4 +18,6 @@ services:
       - db
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/motivai
+    env_file:
+      - .env
       
