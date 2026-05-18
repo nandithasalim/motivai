@@ -43,3 +43,35 @@ async def onboard(request: OnboardRequest):
         conn.commit()
         user_id = result.fetchone()[0]
     return {"user_id": str(user_id)}
+
+@app.get("/v1/feed")
+async def get_feed(user_id: str):
+    with engine.connect() as conn:
+        # 1. get user's goal embedding
+        user = conn.execute(
+            text("SELECT goal_embedding FROM users WHERE id = :user_id"),
+            {"user_id": user_id}
+        ).fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        goal_embedding = user[0]
+        
+        # 2. query reels by cosine similarity
+        result = conn.execute(
+            text("SELECT id, title, summary, tags FROM reels ORDER BY embedding <=> :goal_embedding LIMIT 10"),
+            {"goal_embedding": str(goal_embedding)}
+        )
+        
+        # 3. return as list of dicts
+        reels = result.fetchall()
+        return [
+            {
+                "id": str(row[0]),
+                "title": row[1],
+                "summary": row[2],
+                "tags": row[3]
+            }
+            for row in reels
+        ]

@@ -1,3 +1,4 @@
+## Day 1 EOD
 What I built today: Docker Compose: FastAPI + Postgres + pgvector extension. GET /health returns 200
 What I learned today: abt docker compose format 
 One decision I made and why: i chose pgvector over pinecone bcuz if i choose postgres i can use it fro vector search and store relational data
@@ -17,3 +18,21 @@ because 5x cheaper, same dimensions, accuracy sufficient for feed
 One thing that confused me: Docker caching old code — fixed with 
 --no-cache flag
 docker compose build --no-cache
+
+## Day 3 EOD
+
+What I built:
+- reels table with HNSW index in init.sql
+- seed_reels.py — seeds 12 reels with real OpenAI embeddings
+- GET /v1/feed — returns top 10 reels by cosine similarity to user goals
+
+What I learned:
+- HNSW builds a layered graph, no training step needed
+- IVFFlat groups into clusters, needs training step
+- fetchone() returns a tuple — use [0] to get first column
+- docker compose down -v wipes all data — only use when init.sql changes
+
+One decision I made:
+- chose HNSW over IVFFlat because reels are inserted in real time
+- no training step = index works immediately on new inserts
+
