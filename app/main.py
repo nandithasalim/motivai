@@ -45,9 +45,10 @@ async def onboard(request: OnboardRequest):
     return {"user_id": str(user_id)}
 
 @app.get("/v1/feed")
-async def get_feed(user_id: str):
+async def get_feed(user_id: str, query: str = ""):
     with engine.connect() as conn:
-        # 1. get user's goal embedding
+        
+        # get user's goal embedding
         user = conn.execute(
             text("SELECT goal_embedding FROM users WHERE id = :user_id"),
             {"user_id": user_id}
@@ -58,20 +59,80 @@ async def get_feed(user_id: str):
         
         goal_embedding = user[0]
         
-        # 2. query reels by cosine similarity
-        result = conn.execute(
-            text("SELECT id, title, summary, tags FROM reels ORDER BY embedding <=> :goal_embedding LIMIT 10"),
-            {"goal_embedding": str(goal_embedding)}
-        )
+        # vector search — find reels closest to user goals
+        vector_results = conn.execute(
+            text("""
+                SELECT id, title, summary, tags,
+                ROW_NUMBER() OVER (ORDER BY embedding <=> :embedding) as rank
+                FROM reels
+                ORDER BY embedding <=> :embedding
+                LIMIT 10
+            """),
+            {"embedding": str(goal_embedding)}
+        ).fetchall()
         
-        # 3. return as list of dicts
-        reels = result.fetchall()
-        return [
-            {
-                "id": str(row[0]),
-                "title": row[1],
-                "summary": row[2],
-                "tags": row[3]
+        # FTS search — find reels matching exact keywords
+        fts_results = []
+        if query:
+            fts_results = conn.execute(
+                text("""
+                    SELECT id, title, summary, tags,
+                    ROW_NUMBER() OVER (
+                        ORDER BY ts_rank(search_vector, 
+                        to_tsquery('english', :query)) DESC
+                    ) as rank
+                    FROM reels
+                    WHERE search_vector @@ to_tsquery('english', :query)
+                    ORDER BY ts_rank(search_vector, 
+                             to_tsquery('english', :query)) DESC
+                    LIMIT 10
+                """),
+                {"query": query}
+            ).fetchall()
+        
+        # RRF merge — combine both ranked lists
+        rrf_scores = {}
+        
+        # add vector search scores
+        for row in vector_results:
+            reel_id = str(row[0])
+            rank = row[4]
+            rrf_score = 1 / (60 + rank)
+            rrf_scores[reel_id] = {
+                "score": rrf_score,
+                "data": {
+                    "id": reel_id,
+                    "title": row[1],
+                    "summary": row[2],
+                    "tags": row[3]
+                }
             }
-            for row in reels
-        ]
+        
+        # add FTS scores — add to existing or create new
+        for row in fts_results:
+            reel_id = str(row[0])
+            rank = row[4]
+            rrf_score = 1 / (60 + rank)
+            if reel_id in rrf_scores:
+                # reel appeared in both — add scores together
+                rrf_scores[reel_id]["score"] += rrf_score
+            else:
+                # reel only in FTS results
+                rrf_scores[reel_id] = {
+                    "score": rrf_score,
+                    "data": {
+                        "id": reel_id,
+                        "title": row[1],
+                        "summary": row[2],
+                        "tags": row[3]
+                    }
+                }
+        
+        # sort by RRF score, return top 10
+        sorted_ids = sorted(
+            rrf_scores.keys(),
+            key=lambda x: rrf_scores[x]["score"],
+            reverse=True
+        )[:10]
+        
+        return [rrf_scores[id]["data"] for id in sorted_ids]

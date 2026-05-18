@@ -36,3 +36,23 @@ One decision I made:
 - chose HNSW over IVFFlat because reels are inserted in real time
 - no training step = index works immediately on new inserts
 
+## Day 4 EOD
+
+What I built:
+- Added search_vector column + GIN index to reels table
+- Updated seed_reels.py to populate search_vector with tsvector
+- GET /v1/feed now supports hybrid search with RRF
+- query param optional — without it uses vector only
+
+What I learned:
+- tsvector: processed word index, stems words, removes stopwords
+- tsquery: search query format, @@ operator matches tsvector
+- GIN index: word lookup table, makes FTS fast
+- RRF: merges two ranked lists using 1/(60+rank) formula
+- Reels in both results get combined scores, rise to top
+
+One decision I made:
+- FTS only runs when query param provided
+- Without query, pure vector search is faster and good enough
+- Hybrid only needed when user actively searches
+

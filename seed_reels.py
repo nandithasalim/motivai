@@ -35,15 +35,19 @@ with engine.connect() as conn:
         # 2. insert into reels table
         conn.execute(
             text("""
-                INSERT INTO reels (title, summary, tags, embedding)
-                VALUES (:title, :summary, :tags, :embedding)
+                INSERT INTO reels (title, summary, tags, embedding, search_vector)
+                VALUES (:title, :summary, :tags, :embedding,to_tsvector('english', :title || ' ' || :summary))
             """),
             {
-                "title": reel["title"],
+                "title": reel["title"], #bcuz reel is a python variable
                 "summary": reel["summary"],
                 "tags": reel["tags"],
                 "embedding": str(embedding)
+                
             }
+    
         )
+        
+        
     conn.commit()
     print(f"Seeded {len(reels)} reels successfully")

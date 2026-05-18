@@ -11,7 +11,10 @@ CREATE TABLE reels(
     summary TEXT NOT NULL,
     tags TEXT[] NOT NULL,
     embedding vector(1536),
+    search_vector tsvector,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX ON reels USING hnsw(embedding vector_cosine_ops) WITH(m=16, ef_construction=64);
+
+CREATE INDEX on reels USING gin(search_vector);
