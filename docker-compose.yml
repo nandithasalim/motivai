@@ -16,8 +16,14 @@ services:
       - "8000:8000"
     depends_on:
       - db
+      - redis
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/motivai
     env_file:
       - .env
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
       

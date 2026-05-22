@@ -2,12 +2,14 @@ from fastapi import FastAPI , HTTPException
 from openai import OpenAI
 from dotenv import load_dotenv
 import numpy as np
+import redis
+import json
 from sqlalchemy import create_engine, text
 import os
 from pydantic import BaseModel
 load_dotenv()
 
-
+redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 app = FastAPI()
 engine = create_engine(os.getenv("DATABASE_URL"))
@@ -58,6 +60,11 @@ async def get_feed(user_id: str, query: str = ""):
             raise HTTPException(status_code=404, detail="User not found")
         
         goal_embedding = user[0]
+
+        cache_key = f"feed:{user_id}"  #redis reads only strings
+        cached= redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
         
         # vector search — find reels closest to user goals
         vector_results = conn.execute(
@@ -135,4 +142,6 @@ async def get_feed(user_id: str, query: str = ""):
             reverse=True
         )[:10]
         
-        return [rrf_scores[id]["data"] for id in sorted_ids]
+        final_result=[rrf_scores[id]["data"] for id in sorted_ids]
+        redis_client.setex(cache_key, 300, json.dumps(final_result))
+        return final_result
