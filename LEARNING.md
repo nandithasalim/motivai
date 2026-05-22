@@ -56,3 +56,25 @@ One decision I made:
 - Without query, pure vector search is faster and good enough
 - Hybrid only needed when user actively searches
 
+## Day 5 EOD
+
+What I built:
+- Redis cache for feed — cache-aside pattern, 5min TTL
+added redis in requirment , and redis as new service in docker compose file .
+it is checked if reel feed is present in cache for that user, if not then vector search done else retrieved from cache.
+- POST /v1/tasks — creates task with embedding stored
+- PATCH /v1/tasks/{id}/complete — marks task complete
+- POST /v1/agent/context — semantic search on past completed tasks
+
+What I learned:
+- RAG: retrieve → augment → generate
+- Redis cache-aside: check cache first, miss → DB → store in cache
+- f-strings: f"feed:{user_id}" builds dynamic keys
+- Foreign key constraint: user_id must exist in users table
+- Monolith vs microservices — MotivAI is monolith for now
+
+One decision I made:
+- Used semantic search for agent context (not last 5)
+- Reason: "30min run" query should find similar fitness tasks
+- not unrelated tasks like "study Python"
+

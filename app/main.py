@@ -145,3 +145,73 @@ async def get_feed(user_id: str, query: str = ""):
         final_result=[rrf_scores[id]["data"] for id in sorted_ids]
         redis_client.setex(cache_key, 300, json.dumps(final_result))
         return final_result
+
+class TaskRequest(BaseModel):
+    user_id: str
+    description: str
+
+@app.post("/v1/tasks")
+async def create_task(request: TaskRequest):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=request.description
+    )
+    embedding = response.data[0].embedding
+    with engine.connect() as conn:
+        id=conn.execute(text(
+            """INSERT INTO tasks(user_id,description,embedding) VALUES (:user_id,:description,:embedding) RETURNING id"""),
+            {"user_id":request.user_id,"description":request.description,"embedding": str(embedding)}
+        ).fetchone()[0]
+        conn.commit()
+    return {"task_id":id}
+
+class AgentContextRequest(BaseModel):
+    user_id: str
+    description: str
+
+@app.post("/v1/agent/context")
+async def get_agent_context(request: AgentContextRequest):
+    # embed the current task description
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=request.description
+    )
+    current_embedding = response.data[0].embedding
+    
+    with engine.connect() as conn:
+        # find top 5 similar past completed tasks
+        results = conn.execute(
+            text("""
+                SELECT id, description, completed, created_at
+                FROM tasks
+                WHERE user_id = :user_id 
+                AND completed = TRUE
+                AND embedding IS NOT NULL
+                ORDER BY embedding <=> :embedding
+                LIMIT 5
+            """),
+            {
+                "user_id": request.user_id,
+                "embedding": str(current_embedding)
+            }
+        ).fetchall()
+        
+        return [
+            {
+                "id": str(row[0]),
+                "description": row[1],
+                "completed": row[2],
+                "created_at": str(row[3])
+            }
+            for row in results
+        ]
+    
+@app.patch("/v1/tasks/{task_id}/complete")
+async def complete_task(task_id: str):
+    with engine.connect() as conn:
+        conn.execute(
+            text("UPDATE tasks SET completed = TRUE WHERE id = :task_id"),
+            {"task_id": task_id}
+        )
+        conn.commit()
+    return {"status": "completed"}
