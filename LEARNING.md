@@ -78,3 +78,6 @@ One decision I made:
 - Reason: "30min run" query should find similar fitness tasks
 - not unrelated tasks like "study Python"
 
+client.embeddings.create()  →  converts text to vector
+client.chat.completions.create()  →  generates text from prompt
+client.audio.transcriptions.create()  →  converts audio to text

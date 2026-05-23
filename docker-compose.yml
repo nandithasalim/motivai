@@ -27,3 +27,14 @@ services:
     ports:
       - "6379:6379"
       
+  worker:
+    build: .
+    command: celery -A tasks worker --loglevel=info
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/motivai
+      REDIS_URL: redis://redis:6379
