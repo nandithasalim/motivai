@@ -8,8 +8,8 @@ CREATE TABLE users(
 CREATE TABLE reels(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    tags TEXT[] NOT NULL,
+    summary TEXT ,
+    tags TEXT[] ,
     embedding vector(1536),
     search_vector tsvector,
     created_at TIMESTAMPTZ DEFAULT NOW()

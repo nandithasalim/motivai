@@ -21,6 +21,8 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/motivai
     env_file:
       - .env
+    volumes:
+      - upload_tmp:/tmp
   
   redis:
     image: redis:7-alpine
@@ -38,3 +40,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/motivai
       REDIS_URL: redis://redis:6379
+    volumes:
+      - upload_tmp:/tmp
+volumes:
+  upload_tmp:

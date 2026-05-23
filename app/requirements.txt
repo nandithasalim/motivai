@@ -8,3 +8,4 @@ python-dotenv
 numpy
 redis
 celery
+python-multipart

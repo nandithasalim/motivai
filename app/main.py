@@ -7,6 +7,11 @@ import json
 from sqlalchemy import create_engine, text
 import os
 from pydantic import BaseModel
+from fastapi import UploadFile, File
+import shutil
+import uuid
+from tasks import process_reel
+from celery.result import AsyncResult
 load_dotenv()
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
@@ -215,3 +220,30 @@ async def complete_task(task_id: str):
         )
         conn.commit()
     return {"status": "completed"}
+
+
+@app.post("/v1/upload")
+async def upload_reel(title: str, file: UploadFile = File(...)):
+    # 1. save file to disk
+    file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # 2. create reel record in DB
+    with engine.connect() as conn:
+        reel_id = conn.execute(
+            text("INSERT INTO reels (title) VALUES (:title) RETURNING id"),
+            {"title": title}
+        ).fetchone()[0]
+        conn.commit()
+    
+    # 3. send to Celery
+    task = process_reel.delay(str(reel_id), file_path)
+    
+    # 4. return
+    return {"task_id": task.id, "reel_id": str(reel_id)}
+
+@app.get("/v1/upload/{task_id}")
+async def get_upload_status(task_id: str):
+    task = AsyncResult(task_id, app=process_reel.app)
+    return {"status": task.status}

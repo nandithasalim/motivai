@@ -26,7 +26,7 @@ def process_reel(self, reel_id: str, file_path: str):
                 file=audio_file
             )
         transcript_text = transcript.text
-
+        
         # step 2: extract tags with GPT
         with open("prompts/reel_tagger.txt", "r") as f:
             prompt_template = f.read()
@@ -62,6 +62,7 @@ def process_reel(self, reel_id: str, file_path: str):
                 }
             )
             conn.commit()
+        os.remove(file_path)
 
     except Exception as exc:
         raise self.retry(exc=exc)
