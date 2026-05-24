@@ -81,3 +81,27 @@ One decision I made:
 client.embeddings.create()  →  converts text to vector
 client.chat.completions.create()  →  generates text from prompt
 client.audio.transcriptions.create()  →  converts audio to text
+
+## Day 6 EOD
+
+What I built:
+- prompts/ library — agent_reaction.txt, reel_tagger.txt, onboard_summary.txt
+- app/tasks.py — Celery task: Whisper → extract tags using GPT prompt → embed → store in DB
+- Celery worker service in Docker Compose
+- POST /v1/upload — async video processing pipeline : upload in temporary file path -> add title and return reel id -> call celery process_reel ->return reel id and file path 
+- Shared named volume between api and worker for file passing : for temporary file path 
+
+What I learned:
+- Celery: task queue for background processing
+- Why async: video processing takes 20-30s, can't block HTTP
+- Dockerfile: FROM, WORKDIR, COPY, RUN, CMD explained
+- Named volumes: shared storage between containers
+- COPY app/ vs COPY prompts/ — relative paths in Dockerfile
+- Whisper API: audio → text transcription
+- client.chat.completions.create() for text generation
+
+One decision I made:
+- Save file to shared volume not pass as bytes to Redis
+- Reason: video files are 10-100MB, Redis stores small data only
+- File path (string) goes to Redis, file itself goes to shared volume
+
