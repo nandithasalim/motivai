@@ -105,3 +105,28 @@ One decision I made:
 - Reason: video files are 10-100MB, Redis stores small data only
 - File path (string) goes to Redis, file itself goes to shared volume
 
+## Day 7 EOD
+
+What structured output means:
+Defining exact shape of API response using Pydantic models.
+FastAPI validates automatically — wrong type = immediate error.
+
+Why use Pydantic models for responses:
+Catches missing fields early before they reach production.
+Agent reads this data in Day 7 — wrong structure = agent crashes.
+
+TaskContext model:
+Defines shape of one past task — id, description, completed, created_at.
+
+AgentContextResponse model:
+Wraps list of TaskContext objects + user_id into one structured response.
+
+json.dumps vs json.loads:
+json.dumps: Python object → string (for storing/sending)
+json.loads: string → Python object (for reading/receiving)
+
+When MotivAI uses json.dumps:
+Storing feed result in Redis — Redis only stores strings.
+
+When MotivAI uses json.loads:
+Reading feed result from Redis + reading GPT tag response.

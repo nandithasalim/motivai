@@ -173,6 +173,15 @@ async def create_task(request: TaskRequest):
 class AgentContextRequest(BaseModel):
     user_id: str
     description: str
+class TaskContext(BaseModel):
+    id: str
+    description: str
+    completed: bool
+    created_at: str
+
+class AgentContextResponse(BaseModel):
+    user_id: str
+    past_tasks: list[TaskContext]
 
 @app.post("/v1/agent/context")
 async def get_agent_context(request: AgentContextRequest):
@@ -201,15 +210,16 @@ async def get_agent_context(request: AgentContextRequest):
             }
         ).fetchall()
         
-        return [
-            {
-                "id": str(row[0]),
-                "description": row[1],
-                "completed": row[2],
-                "created_at": str(row[3])
-            }
+        tasks=[
+            TaskContext(
+                id =str(row[0]),
+                description= row[1],
+                completed= row[2],
+                created_at= str(row[3])
+            )
             for row in results
         ]
+        return AgentContextResponse(user_id=request.user_id, past_tasks=tasks)
     
 @app.patch("/v1/tasks/{task_id}/complete")
 async def complete_task(task_id: str):
