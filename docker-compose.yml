@@ -31,7 +31,7 @@ services:
       
   worker:
     build: .
-    command: celery -A tasks worker --loglevel=info
+    command: celery -A reels_celery worker --loglevel=info
     depends_on:
       - db
       - redis

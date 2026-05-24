@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from fastapi import UploadFile, File
 import shutil
 import uuid
-from tasks import process_reel
+from app.reels_celery import process_reel
 from celery.result import AsyncResult
 load_dotenv()
 
@@ -21,12 +21,7 @@ engine = create_engine(os.getenv("DATABASE_URL"))
 
 class OnboardRequest(BaseModel):
     goals: list[str]
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-@app.post("/v1/onboard")
+@app.post("/v1/goals_embedding")
 async def onboard(request: OnboardRequest):
     if len(request.goals) != 3:
         raise HTTPException(status_code=400, detail="Exactly 3 goals required.")
@@ -51,10 +46,15 @@ async def onboard(request: OnboardRequest):
         user_id = result.fetchone()[0]
     return {"user_id": str(user_id)}
 
-@app.get("/v1/feed")
+@app.get("/v1/feed_return")
 async def get_feed(user_id: str, query: str = ""):
+    #checks if feed is in redis cache, if yes return, if no compute and store in redis before returning
+    cache_key = f"feed:{user_id}"  #redis reads only strings
+    cached= redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    
     with engine.connect() as conn:
-        
         # get user's goal embedding
         user = conn.execute(
             text("SELECT goal_embedding FROM users WHERE id = :user_id"),
@@ -65,11 +65,6 @@ async def get_feed(user_id: str, query: str = ""):
             raise HTTPException(status_code=404, detail="User not found")
         
         goal_embedding = user[0]
-
-        cache_key = f"feed:{user_id}"  #redis reads only strings
-        cached= redis_client.get(cache_key)
-        if cached:
-            return json.loads(cached)
         
         # vector search — find reels closest to user goals
         vector_results = conn.execute(
@@ -139,7 +134,6 @@ async def get_feed(user_id: str, query: str = ""):
                         "tags": row[3]
                     }
                 }
-        
         # sort by RRF score, return top 10
         sorted_ids = sorted(
             rrf_scores.keys(),
@@ -148,13 +142,40 @@ async def get_feed(user_id: str, query: str = ""):
         )[:10]
         
         final_result=[rrf_scores[id]["data"] for id in sorted_ids]
-        redis_client.setex(cache_key, 300, json.dumps(final_result))
+        redis_client.setex(cache_key, 300, json.dumps(final_result)) # store in redis for 5 mins
         return final_result
+    
+
+@app.post("/v1/upload_reel")
+async def upload_reel(title: str, file: UploadFile = File(...)):
+    # 1. save file to disk
+    file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    # 2. create reel record in DB
+    with engine.connect() as conn:
+        reel_id = conn.execute(
+            text("INSERT INTO reels (title) VALUES (:title) RETURNING id"),
+            {"title": title}
+        ).fetchone()[0]
+        conn.commit()
+    # 3. send to Celery
+    task = process_reel.delay(str(reel_id), file_path)
+    # 4. return
+    return {"task_id": task.id, "reel_id": str(reel_id)} # task id is celery id to track bg job
+
+
+@app.get("/v1/celery_status/{task_id}")
+async def get_upload_status(task_id: str):
+    task = AsyncResult(task_id, app=process_reel.app)  #to check status of celery task
+    return {"status": task.status}   
+
 
 class TaskRequest(BaseModel):
     user_id: str
     description: str
-
+    
 @app.post("/v1/tasks")
 async def create_task(request: TaskRequest):
     response = client.embeddings.create(
@@ -172,7 +193,7 @@ async def create_task(request: TaskRequest):
 
 class AgentContextRequest(BaseModel):
     user_id: str
-    description: str
+    task_id: str
 class TaskContext(BaseModel):
     id: str
     description: str
@@ -183,16 +204,17 @@ class AgentContextResponse(BaseModel):
     user_id: str
     past_tasks: list[TaskContext]
 
-@app.post("/v1/agent/context")
+@app.post("/v1/agent/past_tasks")
 async def get_agent_context(request: AgentContextRequest):
-    # embed the current task description
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=request.description
-    )
-    current_embedding = response.data[0].embedding
     
     with engine.connect() as conn:
+        # get embedding of current task
+        task = conn.execute(
+            text("SELECT embedding FROM tasks WHERE id = :task_id"),
+            {"task_id": request.task_id}
+        ).fetchone()
+
+        current_embedding = task[0] 
         # find top 5 similar past completed tasks
         results = conn.execute(
             text("""
@@ -232,28 +254,3 @@ async def complete_task(task_id: str):
     return {"status": "completed"}
 
 
-@app.post("/v1/upload")
-async def upload_reel(title: str, file: UploadFile = File(...)):
-    # 1. save file to disk
-    file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # 2. create reel record in DB
-    with engine.connect() as conn:
-        reel_id = conn.execute(
-            text("INSERT INTO reels (title) VALUES (:title) RETURNING id"),
-            {"title": title}
-        ).fetchone()[0]
-        conn.commit()
-    
-    # 3. send to Celery
-    task = process_reel.delay(str(reel_id), file_path)
-    
-    # 4. return
-    return {"task_id": task.id, "reel_id": str(reel_id)}
-
-@app.get("/v1/upload/{task_id}")
-async def get_upload_status(task_id: str):
-    task = AsyncResult(task_id, app=process_reel.app)
-    return {"status": task.status}
