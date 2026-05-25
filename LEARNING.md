@@ -130,3 +130,78 @@ Storing feed result in Redis — Redis only stores strings.
 
 When MotivAI uses json.loads:
 Reading feed result from Redis + reading GPT tag response.
+
+## Day 8 EOD
+
+### Why Render
+Without Render:  app only works on your laptop
+With Render:     app has a live URL anyone can access
+                 https://motivai-ecjl.onrender.com
+- Free tier available
+- Supports Docker directly — no code changes needed
+- Automatic redeploy when you push to GitHub
+- Managed Postgres and Redis available
+
+### What I deployed
+3 services:
+api     → FastAPI app (Web Service on Render)
+db      → Postgres with pgvector (Render Postgres)
+redis   → Redis cache + Celery broker (Upstash free tier)
+
+Note: Celery worker not deployed yet .
+Will add later.
+
+### Steps I followed
+
+1. Created Postgres on Render
+   - New → PostgreSQL → motivai-db → Free plan
+   - Copied External Database URL
+
+2. Created Redis on Upstash (Render has no free Redis)
+   - upstash.com → Create Database → motivai-redis
+   - Region: ap-southeast-1 (closest to India)
+   - Copied Redis URL (rediss://...)
+
+3. Created Web Service on Render
+   - New → Web Service → connected GitHub repo
+   - Runtime: Docker
+   - Added environment variables:
+     OPENAI_API_KEY = my key
+     DATABASE_URL   = Render Postgres URL
+     REDIS_URL      = Upstash Redis URL
+
+4. Ran init.sql on Render Postgres
+   - Render Postgres starts empty — no tables
+   - Had to run init.sql manually:
+     psql <render-db-url> -f db/init.sql
+   - This created: users, reels, tasks tables + HNSW + GIN indexes
+
+5. Seeded reels on Render Postgres
+   - seed_reels.py runs locally
+   - Pointed it at Render DB temporarily
+   - Seeded 52 reels with real OpenAI embeddings
+
+6. Tested live URL
+   - POST /v1/goals_embedding → returned user_id ✓
+   - GET /v1/feed_return → returned 10 ranked reels ✓
+
+### Key difference — local vs Render
+
+Local Docker:
+  DATABASE_URL = postgresql://postgres:postgres@db:5432/motivai
+  "db" = Docker service name, works inside Docker network
+
+Render:
+  DATABASE_URL = postgresql://user:pass@host.render.com/dbname
+  actual hostname, accessible from internet
+
+### What's not deployed yet
+- Celery worker (needs paid plan on Render)
+- Will use Render Background Worker later
+- For now upload pipeline only works locally
+
+### Lesson learned
+- init.sql doesn't run automatically on Render
+  (unlike Docker which runs it on first startup)
+- Must run it manually after creating Postgres
+- Redis free tier removed from Render — use Upstash instead
