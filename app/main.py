@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from fastapi import UploadFile, File
 import shutil
 import uuid
-from app.reels_celery import process_reel
+from reels_celery import process_reel
 from celery.result import AsyncResult
 load_dotenv()
 
@@ -142,7 +142,8 @@ async def get_feed(user_id: str, query: str = ""):
         )[:10]
         
         final_result=[rrf_scores[id]["data"] for id in sorted_ids]
-        redis_client.setex(cache_key, 300, json.dumps(final_result)) # store in redis for 5 mins
+        if final_result:
+            redis_client.setex(cache_key, 300, json.dumps(final_result)) # store in redis for 5 mins
         return final_result
     
 
