@@ -10,6 +10,7 @@ CREATE TABLE reels(
     title TEXT NOT NULL,
     summary TEXT ,
     tags TEXT[] ,
+    object_key TEXT,
     embedding vector(1536),
     search_vector tsvector,
     created_at TIMESTAMPTZ DEFAULT NOW()

@@ -13,6 +13,21 @@ import uuid
 from reels_celery import process_reel
 from celery.result import AsyncResult
 load_dotenv()
+from minio import Minio
+from minio.error import S3Error
+import io
+
+# add MinIO client below your other clients
+minio_client = Minio(
+    os.getenv("MINIO_ENDPOINT"),
+    access_key=os.getenv("MINIO_ACCESS_KEY"),
+    secret_key=os.getenv("MINIO_SECRET_KEY"),
+    secure=False  # no HTTPS locally
+)
+# auto-create bucket if not exists
+bucket_name = os.getenv("MINIO_BUCKET")
+if not minio_client.bucket_exists(bucket_name):
+    minio_client.make_bucket(bucket_name)
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -149,22 +164,36 @@ async def get_feed(user_id: str, query: str = ""):
 
 @app.post("/v1/upload_reel")
 async def upload_reel(title: str, file: UploadFile = File(...)):
-    # 1. save file to disk
-    file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 1. read file content
+    file_content = await file.read()  # read file as bytes
+    file_size = len(file_content)
+    object_key = f"reels/{uuid.uuid4()}_{file.filename}"
     
-    # 2. create reel record in DB
+    # 2. upload to MinIO
+    minio_client.put_object(
+        os.getenv("MINIO_BUCKET"),
+        object_key,
+        io.BytesIO(file_content), # MinIO expects stream for file uploads, so we wrap bytes in BytesIO
+        length=file_size,
+        content_type=file.content_type
+    )
+    # 3. save to /tmp/ for Celery processing
+    file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    with open(file_path, "wb") as buffer:  # wb as we are writing non text data (binary mode)
+        buffer.write(file_content)
+    
+    # 4. create reel record in DB with object key
     with engine.connect() as conn:
         reel_id = conn.execute(
-            text("INSERT INTO reels (title) VALUES (:title) RETURNING id"),
-            {"title": title}
+            text("INSERT INTO reels (title, object_key) VALUES (:title, :object_key) RETURNING id"),
+            {"title": title, "object_key": object_key}
         ).fetchone()[0]
         conn.commit()
-    # 3. send to Celery
+    
+    # 5. send to Celery
     task = process_reel.delay(str(reel_id), file_path)
-    # 4. return
-    return {"task_id": task.id, "reel_id": str(reel_id)} # task id is celery id to track bg job
+    
+    return {"task_id": task.id, "reel_id": str(reel_id), "object_key": object_key} # task.id is celery id 
 
 
 @app.get("/v1/celery_status/{task_id}")
