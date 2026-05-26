@@ -16,6 +16,7 @@ load_dotenv()
 from minio import Minio
 from minio.error import S3Error
 import io
+from datetime import timedelta
 
 # add MinIO client below your other clients
 minio_client = Minio(
@@ -201,6 +202,31 @@ async def get_upload_status(task_id: str):
     task = AsyncResult(task_id, app=process_reel.app)  #to check status of celery task
     return {"status": task.status}   
 
+
+@app.get("/v1/reels/{reel_id}/play")
+async def get_reel_url(reel_id: str):
+    with engine.connect() as conn:
+        reel = conn.execute(
+            text("SELECT object_key FROM reels WHERE id = :reel_id"),
+            {"reel_id": reel_id}
+        ).fetchone()
+        
+        if not reel:
+            raise HTTPException(status_code=404, detail="Reel not found")
+        
+        object_key = reel[0]
+        
+        if not object_key:
+            raise HTTPException(status_code=404, detail="No file uploaded for this reel")
+    
+    # generate presigned URL valid for 1 hour
+    url = minio_client.presigned_get_object(
+        os.getenv("MINIO_BUCKET"),
+        object_key,
+        expires=timedelta(hours=1)
+    )
+    
+    return {"url": url, "expires_in": "1 hour"}
 
 class TaskRequest(BaseModel):
     user_id: str
