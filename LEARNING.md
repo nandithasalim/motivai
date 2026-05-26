@@ -205,3 +205,31 @@ Render:
   (unlike Docker which runs it on first startup)
 - Must run it manually after creating Postgres
 - Redis free tier removed from Render — use Upstash instead
+
+## Day 9 EOD 
+
+## Celery + Redis deep theory
+Celery chains:
+- split one big task into smaller linked tasks
+- if step 2 fails → only step 2 retries
+- .s() = task signature (reference without running)
+
+Exponential backoff:
+- countdown = 2 ** self.request.retries
+- 1s, 2s, 4s, 8s between retries
+- prevents hammering failing API
+
+Dead letter queue:
+- stores tasks that failed all retries
+- lets you inspect failures and replay
+- MotivAI: store in Redis list, inspect manually
+
+Redis data structures:
+- Strings:      simple cache, TTL
+- Hashes:       store objects (user profile cache)
+- Lists:        queues, notifications
+- Sets:         unique items (seen reels per user)
+- Sorted sets:  leaderboards (trending reels)
+
+TTL: key expires automatically after N seconds
+Eviction: allkeys-lru removes least recently used when memory full

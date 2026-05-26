@@ -9,3 +9,4 @@ numpy
 redis
 celery
 python-multipart
+minio
