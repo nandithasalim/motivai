@@ -3,7 +3,6 @@ What I built today: Docker Compose: FastAPI + Postgres + pgvector extension. GET
 What I learned today: abt docker compose format 
 One decision I made and why: i chose pgvector over pinecone bcuz if i choose postgres i can use it fro vector search and store relational data
 
-date :17 may 
 ## Day 2 EOD
 
 What I built: POST /v1/onboard — takes 3 goals, calls OpenAI 
@@ -298,4 +297,33 @@ What I built today:
 Key decision:
 - Two MinIO clients considered for presigned URL hostname fix
 - Chose public bucket locally instead — simpler, avoids hostname mismatch
-- Will use private bucket + proper presigned URLs on Render in week 8
+- Will use private bucket + proper presigned URLs on Render later
+
+## Day 11 EOD — Multi-modal + Moderation
+
+Whisper internals:
+Audio → mel spectrogram (frequency heat map) → encoder (understands audio)
+→ decoder (generates text word by word)
+Same encoder-decoder as translation models.
+OpenAI API abstracts all of this — just call whisper-1.
+
+Multi-modal:
+Model that handles multiple types of input — text + image + audio.
+GPT-4o: text + image in same prompt.
+Whisper: audio only.
+GPT-4o-mini: text only.
+
+GPT-4o vision:
+Send image URL + text question in same message.
+content is a list — image_url item + text item.
+GPT-4o reads both together and responds.
+
+Why moderation:
+Production apps must check content before publishing.
+Inappropriate content = legal risk + bad user experience.
+Moderation step in Celery chain = automatic safety check.
+
+Moderation flow in MotivAI:
+Upload → Whisper transcription → GPT-4o checks transcript
+→ appropriate? → continue (tag + embed + store)
+→ inappropriate? → flag reel, stop pipeline

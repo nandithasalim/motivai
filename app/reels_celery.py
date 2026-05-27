@@ -26,8 +26,34 @@ def process_reel(self, reel_id: str, file_path: str):
                 file=audio_file
             )
         transcript_text = transcript.text
+
+        # step 2: moderation — check transcript for inappropriate content
+        moderation_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": f"""Is this transcript appropriate for all ages? 
+                Check for violence, adult content, hate speech.
+                Reply YES or NO only.
+                
+                Transcript: {transcript_text}"""
+            }]
+        )
         
-        # step 2: extract tags with GPT
+        is_appropriate = moderation_response.choices[0].message.content.strip().upper()
+        
+        if is_appropriate == "NO":
+            # flag reel and stop pipeline
+            with engine.connect() as conn:
+                conn.execute(
+                    text("UPDATE reels SET flagged = TRUE WHERE id = :reel_id"),
+                    {"reel_id": reel_id}
+                )
+                conn.commit()
+            os.remove(file_path)
+            return {"status": "flagged", "reel_id": reel_id}
+
+        # step 3: extract tags with GPT
         with open("prompts/reel_tagger.txt", "r") as f:
             prompt_template = f.read()
         prompt = prompt_template.replace("{{transcript}}", transcript_text)
@@ -37,14 +63,14 @@ def process_reel(self, reel_id: str, file_path: str):
         )
         tags = json.loads(response.choices[0].message.content)
 
-        # step 3: embed summary
+        # step 4: embed summary
         embedding_response = client.embeddings.create(
             model="text-embedding-3-small",
             input=transcript_text[:500]
         )
         embedding = embedding_response.data[0].embedding
 
-        # step 4: store in DB
+        # step 5: store in DB
         with engine.connect() as conn:
             conn.execute(
                 text("""
@@ -62,7 +88,8 @@ def process_reel(self, reel_id: str, file_path: str):
                 }
             )
             conn.commit()
+
         os.remove(file_path)
 
     except Exception as exc:
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc, countdown=2 ** self.request.retries) # exponential backoff

@@ -11,6 +11,7 @@ CREATE TABLE reels(
     summary TEXT ,
     tags TEXT[] ,
     object_key TEXT,
+    flagged BOOLEAN DEFAULT FALSE,
     embedding vector(1536),
     search_vector tsvector,
     created_at TIMESTAMPTZ DEFAULT NOW()
