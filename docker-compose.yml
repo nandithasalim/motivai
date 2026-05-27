@@ -9,6 +9,7 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       -  ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
   
   api:
     build: .
@@ -58,3 +59,4 @@ services:
 volumes:
   upload_tmp:
   minio_data:
+  postgres_data:

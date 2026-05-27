@@ -219,12 +219,16 @@ async def get_reel_url(reel_id: str):
         if not object_key:
             raise HTTPException(status_code=404, detail="No file uploaded for this reel")
     
-    # generate presigned URL valid for 1 hour
+    # generate using internal client (minio:9000)
     url = minio_client.presigned_get_object(
         os.getenv("MINIO_BUCKET"),
         object_key,
         expires=timedelta(hours=1)
     )
+    
+    # replace internal hostname with localhost for browser access
+    url = url.replace("http://minio:9000", "http://localhost:9000")
+
     
     return {"url": url, "expires_in": "1 hour"}
 
