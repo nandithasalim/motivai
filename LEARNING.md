@@ -233,3 +233,69 @@ Redis data structures:
 
 TTL: key expires automatically after N seconds
 Eviction: allkeys-lru removes least recently used when memory full
+
+## Day 10 EOD
+
+## Object Storage + MinIO
+Why object storage:
+Videos are large binary files — Postgres stores structured data not binary.
+/tmp/ is temporary — files deleted on container restart.
+MinIO/S3 designed for large files, permanent storage, fast serving.
+
+S3 vs MinIO:
+S3 — Amazon's cloud object storage, pay per GB, managed by AWS.
+MinIO — open source S3 clone, run yourself in Docker, free, same API.
+Same Python code works for both — just change endpoint URL.
+
+Presigned URL:
+Temporary URL giving access to a private file for limited time.
+Generated server-side — user gets URL valid for 1 hour then expires.
+Production: private bucket + presigned URL = proper access control.
+Local: public bucket used — presigned URL has hostname mismatch issue.
+
+Multipart upload:
+Splits large files into chunks, uploads in parallel — much faster.
+MinIO Python client handles this automatically for files over 5MB.
+
+Object key:
+Path/name for file inside MinIO bucket.
+We construct it: f"reels/{uuid.uuid4()}_{file.filename}"
+Unique per upload — no files overwrite each other.
+
+Named volume minio_data:
+Stores all MinIO data — buckets, files, config.
+Mounted at /data inside MinIO container.
+Persists across docker compose down (not -v).
+
+How MinIO fits in MotivAI upload flow:
+Creator uploads video
+↓
+FastAPI reads file as bytes
+↓
+Uploads to MinIO (permanent) → object_key stored in DB
+↓
+Saves to /tmp/ (temporary) → for Celery/Whisper
+↓
+Celery processes: Whisper → GPT → embed → store
+↓
+os.remove() deletes /tmp/ file
+↓
+MinIO copy stays forever for playback
+
+Redis — broker vs cache vs pub/sub:
+Broker: passes messages between services — FastAPI → Redis → Celery
+Cache: stores expensive results temporarily — feed result, TTL 5min
+Pub/sub: broadcasts to multiple listeners — fire and forget
+
+What I built today:
+- MinIO service in Docker Compose with named volume
+- Auto-create bucket on startup if not exists
+- Upload reel to MinIO + /tmp/ simultaneously
+- object_key column added to reels table
+- GET /v1/reels/{id}/play returns URL for playback
+- Postgres data persistence with named volume
+
+Key decision:
+- Two MinIO clients considered for presigned URL hostname fix
+- Chose public bucket locally instead — simpler, avoids hostname mismatch
+- Will use private bucket + proper presigned URLs on Render in week 8
