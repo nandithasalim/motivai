@@ -327,3 +327,45 @@ Moderation flow in MotivAI:
 Upload → Whisper transcription → GPT-4o checks transcript
 → appropriate? → continue (tag + embed + store)
 → inappropriate? → flag reel, stop pipeline
+
+## Day 12 EOD — Flower + Full pipeline test
+
+Flower:
+Web dashboard for Celery monitoring at localhost:5555.
+Shows task history, success/failure, worker status.
+Added as Docker service — image: mher/flower.
+
+Task state machine:
+PENDING → STARTED → SUCCESS/FAILURE/RETRY
+
+Full upload flow tested:
+Upload reel → MinIO storage → Celery processes
+→ Whisper transcription → moderation check → GPT tags
+→ embed → store in DB → appears in feed after cache clear
+
+Key insight:
+Redis cache must be cleared after new reel uploaded
+otherwise feed returns stale cached results
+Future fix: invalidate cache when new reel added to DB
+
+## Day 13 EOD — Redis Streams
+
+Pub/Sub vs Streams:
+Pub/Sub: fire and forget — message lost if no listener
+Streams: persistent log — message stays until consumed
+MotivAI uses Streams: agent crash doesn't lose task completion event
+
+Commands:
+XADD: add message to stream
+XREAD: read messages from stream  
+XACK: acknowledge message processed (used with consumer groups)
+
+Consumer groups:
+Multiple workers, each message processed by only one worker
+Unacknowledged messages can be claimed by another worker
+Handles worker crashes gracefully
+
+MotivAI flow:
+Task completed → XADD to task_completed stream
+Agent worker reads stream → reacts to completion
+FastAPI returns immediately — agent reacts asynchronously

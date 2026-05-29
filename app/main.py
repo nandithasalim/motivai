@@ -17,6 +17,7 @@ from minio import Minio
 from minio.error import S3Error
 import io
 from datetime import timedelta
+from datetime import datetime
 
 # add MinIO client below your other clients
 minio_client = Minio(
@@ -303,14 +304,34 @@ async def get_agent_context(request: AgentContextRequest):
         ]
         return AgentContextResponse(user_id=request.user_id, past_tasks=tasks)
     
+
 @app.patch("/v1/tasks/{task_id}/complete")
-async def complete_task(task_id: str):
+async def complete_task(task_id: str, user_id: str):
     with engine.connect() as conn:
+        # get task description
+        task = conn.execute(
+            text("SELECT description FROM tasks WHERE id = :task_id"),
+            {"task_id": task_id}
+        ).fetchone()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        # mark complete in DB
         conn.execute(
             text("UPDATE tasks SET completed = TRUE WHERE id = :task_id"),
             {"task_id": task_id}
         )
         conn.commit()
+    
+    # fire Redis Stream event
+    redis_client.xadd("task_completed", {
+        "user_id": user_id,
+        "task_id": task_id,
+        "description": task[0],
+        "timestamp": str(datetime.now())
+    })
+    
     return {"status": "completed"}
 
 
