@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE users(
     id UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
+    goals TEXT[] ,
     goal_embedding vector(1536),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -29,3 +30,21 @@ CREATE TABLE tasks (
     completed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 )
+
+CREATE TABLE groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    description TEXT,
+    embedding vector(1536),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX ON groups USING hnsw(embedding vector_cosine_ops)
+WITH (m=16, ef_construction=64);
+
+CREATE TABLE group_members (
+    group_id UUID REFERENCES groups(id),
+    user_id UUID REFERENCES users(id),
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (group_id, user_id)
+);

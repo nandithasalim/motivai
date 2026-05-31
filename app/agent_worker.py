@@ -33,7 +33,7 @@ def process_stream():
     
     print("Agent worker started — listening for task completions...")
     
-    while True:  
+    while True:  #always listening for new task completions
         # read undelivered messages
         messages = redis_client.xreadgroup(
             "agent-workers", # consumer group
@@ -46,7 +46,7 @@ def process_stream():
         if messages:
             for stream_name, stream_messages in messages:
                 for message_id, message_data in stream_messages:
-                    user_id = message_data.get(b"user_id", b"").decode()
+                    user_id = message_data.get(b"user_id", b"").decode() # decode bytes to string
                     task_id = message_data.get(b"task_id", b"").decode()
                     description = message_data.get(b"description", b"").decode()
                     
