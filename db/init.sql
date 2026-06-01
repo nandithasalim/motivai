@@ -29,7 +29,7 @@ CREATE TABLE tasks (
     embedding vector(1536),
     completed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
-)
+);
 
 CREATE TABLE groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

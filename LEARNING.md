@@ -369,3 +369,25 @@ MotivAI flow:
 Task completed → XADD to task_completed stream
 Agent worker reads stream → reacts to completion
 FastAPI returns immediately — agent reacts asynchronously
+
+## Day 14 EOD
+ — Group matching
+
+Group schema:
+[groups table + group_members table — what each stores]
+
+Flow:
+[user creates group → embed description → stored
+ user matches → embed goals on fly → find closest groups]
+
+Key decisions:
+- Embed group description not name — richer meaning
+- Deduplicate results — same group matched by multiple goals shown once
+- Similarity threshold — don't suggest unrelated groups
+- Goals stored as TEXT[] in users table — no separate table needed
+
+Endpoints built:
+POST /v1/groups/create    — embed description, store, creator joins
+GET  /v1/groups/match     — embed user goals on fly, find closest groups
+POST /v1/groups/{id}/join — user joins existing group
+GET  /v1/groups/{id}/members — group details + all members 

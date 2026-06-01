@@ -340,7 +340,7 @@ class GroupCreateRequest(BaseModel):
     name: str
     description: str
 
-@app.post("v1/group/create")
+@app.post("/v1/groups/create")
 def create_group(request: GroupCreateRequest):
     response= client.embeddings.create(
         model="text-embedding-3-small",
@@ -358,6 +358,78 @@ def create_group(request: GroupCreateRequest):
             {"group_id": group_id, "user_id": request.user_id}
         )
         conn.commit()
+    return {"group_id": str(group_id)}
+
+@app.get("/v1/groups/match")
+def match_groups(user_id: str):
+    groups=[]
+    with engine.connect() as conn:
+       
+        goals= conn.execute(
+            text("SELECT goals FROM users WHERE id = :user_id "),
+            {"user_id": user_id}
+        ).fetchone()[0]
     
+        for goal in goals:
+            response=client.embeddings.create(
+            model="text-embedding-3-small",
+            input=goal
+            )   
+            embedding=response.data[0].embedding
+        
+            results = conn.execute(
+                text("""
+                    SELECT id, name, description
+                    FROM groups
+                    WHERE embedding <=> :embedding < 0.5
+                    ORDER BY embedding <=> :embedding
+                    LIMIT 3
+                """),
+                {"embedding": str(embedding)}
+            ).fetchall()
+            seen_ids = set()
+            for row in results:
+                group_id = str(row[0])
+                if group_id not in seen_ids:
+                    seen_ids.add(group_id)
+                    groups.append({
+                    "id": group_id,
+                    "name": row[1],
+                    "description": row[2]
+                 })
+    return {"matched_groups": groups}
+
+@app.post("/v1/groups/{group_id}/join")
+async def join_group(group_id: str, user_id: str):
+    with engine.connect() as conn:
+        conn.execute(
+        text("INSERT INTO group_members (group_id, user_id) VALUES (:group_id, :user_id)"),
+       {"group_id": str(group_id), "user_id": user_id}
+    )
+        conn.commit()    
+    return {"status": "joined"}
+        
+@app.get("/v1/groups/{group_id}/members")
+def get_group_members(group_id: str):
+    with engine.connect() as conn:
+        members = conn.execute(
+            text("""
+                SELECT g.name,g.description,gm.user_id
+                FROM group_members gm 
+                JOIN groups g ON g.id = gm.group_id
+                WHERE g.id = :group_id
+            """),
+            {"group_id": group_id}
+        ).fetchall()
+    return [
+    {
+        "group_name": row[0],
+        "description": row[1],
+        "user_id": str(row[2])
+    }
+    for row in members
+]
+      
+      
 
 
