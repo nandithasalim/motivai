@@ -56,8 +56,9 @@ async def onboard(request: OnboardRequest):
     
     with engine.connect() as conn:
         result = conn.execute(
-            text("INSERT INTO users (goal_embedding) VALUES (:embedding) RETURNING id"),
-            {"embedding": str(averaged)}
+            text("INSERT INTO users (goal_embedding,goals) VALUES (:embedding,:goals) RETURNING id"),
+            {"embedding": str(averaged),
+             "goals": request.goals}
         )
         conn.commit()
         user_id = result.fetchone()[0]
@@ -333,5 +334,30 @@ async def complete_task(task_id: str, user_id: str):
     })
     
     return {"status": "completed"}
+
+class GroupCreateRequest(BaseModel):
+    user_id: str
+    name: str
+    description: str
+
+@app.post("v1/group/create")
+def create_group(request: GroupCreateRequest):
+    response= client.embeddings.create(
+        model="text-embedding-3-small",
+        input=request.description
+    )
+    embedding = response.data[0].embedding
+    with engine.connect() as conn:
+        group_id = conn.execute(
+            text("INSERT INTO groups (name, description, embedding) VALUES (:name, :description, :embedding) RETURNING id"),
+            {"name": request.name, "description": request.description, "embedding": str(embedding)}
+        ).fetchone()[0]
+        # add creator as member
+        conn.execute(
+            text("INSERT INTO group_members (group_id, user_id) VALUES (:group_id, :user_id)"),
+            {"group_id": group_id, "user_id": request.user_id}
+        )
+        conn.commit()
+    
 
 
