@@ -362,21 +362,23 @@ def create_group(request: GroupCreateRequest):
 
 @app.get("/v1/groups/match")
 def match_groups(user_id: str):
-    groups=[]
+    seen_ids = set()
+    groups = []
     with engine.connect() as conn:
-       
-        goals= conn.execute(
-            text("SELECT goals FROM users WHERE id = :user_id "),
+        goals = conn.execute(
+            text("SELECT goals FROM users WHERE id = :user_id"),
             {"user_id": user_id}
         ).fetchone()[0]
-    
-        for goal in goals:
-            response=client.embeddings.create(
+
+        # one API call for all goals
+        response = client.embeddings.create(
             model="text-embedding-3-small",
-            input=goal
-            )   
-            embedding=response.data[0].embedding
-        
+            input=goals
+        )
+        embeddings = [item.embedding for item in response.data]
+
+        # loop through each goal embedding
+        for embedding in embeddings:
             results = conn.execute(
                 text("""
                     SELECT id, name, description
@@ -387,17 +389,18 @@ def match_groups(user_id: str):
                 """),
                 {"embedding": str(embedding)}
             ).fetchall()
-            seen_ids = set()
+
             for row in results:
                 group_id = str(row[0])
                 if group_id not in seen_ids:
                     seen_ids.add(group_id)
                     groups.append({
-                    "id": group_id,
-                    "name": row[1],
-                    "description": row[2]
-                 })
+                        "id": group_id,
+                        "name": row[1],
+                        "description": row[2]
+                    })
     return {"matched_groups": groups}
+
 
 @app.post("/v1/groups/{group_id}/join")
 async def join_group(group_id: str, user_id: str):
