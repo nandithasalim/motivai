@@ -62,3 +62,45 @@ def retrieve_context(state: AgentState) -> AgentState:
         ]
     
     return state
+
+def generate_reaction(state: AgentState) -> AgentState:
+    with open ("prompts/agent_reaction.txt", "r") as f:
+        prompt_template = f.read()
+    past_tasks = state["past_tasks"] 
+    past_tasks = "\n".join([f"- {t['description']}" for t in past_tasks])  #"- 20min run\n- HIIT workout\n- study Python"
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+    {"role": "system", "content": prompt_template},
+    {"role": "user", "content": f"User completed: {state['description']}\nPast tasks: {past_tasks}"}
+])
+    state["reaction"] = response.choices[0].message.content.strip()
+    return state
+
+def store_reaction(state: AgentState) -> AgentState:
+    with engine.connect() as conn:
+        # get all groups user belongs to
+        groups = conn.execute(
+            text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
+            {"user_id": state["user_id"]}
+        ).fetchall()
+        
+        # store reaction in each group's feed
+        for group in groups:
+            conn.execute(
+                text("""
+                    INSERT INTO group_posts 
+                    (group_id, user_id, completed_tasks, uncompleted_tasks, agent_reaction)
+                    VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, :reaction)
+                """),
+                {
+                    "group_id": str(group[0]),
+                    "user_id": state["user_id"],
+                    "completed_tasks": [state["description"]],
+                    "uncompleted_tasks": [],
+                    "reaction": state["reaction"]
+                }
+            )
+        conn.commit()
+    
+    return state
