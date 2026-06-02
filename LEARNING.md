@@ -391,3 +391,28 @@ POST /v1/groups/create    — embed description, store, creator joins
 GET  /v1/groups/match     — embed user goals on fly, find closest groups
 POST /v1/groups/{id}/join — user joins existing group
 GET  /v1/groups/{id}/members — group details + all members 
+
+## Day 15 EOD- Idempotency
+
+What idempotency means:
+Operation produces same result no matter how many times called.
+Example: completing a task twice should only trigger agent once.
+
+Why needed:
+Redis Streams = at-least-once delivery.
+Same event can fire multiple times — double click, worker crash.
+Without idempotency → agent reacts twice → bad UX.
+
+Idempotency key pattern:
+Before processing → SET task:processed:{task_id} NX EX 86400
+NX = only set if not exists → atomic, only one worker succeeds.
+If key exists → already processed → skip + xack.
+If key doesn't exist → first time → process → xack.
+
+What I built:
+Idempotency check in agent_worker.py before processing each message.
+Duplicate events silently skipped — only first processing triggers agent.
+RESULT : I gave same task completed two times: 
+agent-1  | Agent triggered for user 49a8c9ab-609e-4273-b3fe-08fb00a84cd4 — task: 30min run
+agent-1  | Message b'1780398738496-0' acknowledged
+agent-1  | Task 54814c8b-850a-49d8-8393-9786d18d8419 already processed — skipping

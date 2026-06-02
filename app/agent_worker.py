@@ -33,30 +33,45 @@ def process_stream():
     
     print("Agent worker started — listening for task completions...")
     
-    while True:  #always listening for new task completions
-        # read undelivered messages
+    while True:
         messages = redis_client.xreadgroup(
-            "agent-workers", # consumer group
-            "worker-1",      # consumer name
+            "agent-workers",
+            "worker-1",
             {"task_completed": ">"},
             count=1,
-            block=5000  # wait 5 seconds for message
+            block=5000
         )
-        
         if messages:
             for stream_name, stream_messages in messages:
                 for message_id, message_data in stream_messages:
-                    user_id = message_data.get(b"user_id", b"").decode() # decode bytes to string
+                    user_id = message_data.get(b"user_id", b"").decode()
                     task_id = message_data.get(b"task_id", b"").decode()
                     description = message_data.get(b"description", b"").decode()
                     
+                    # idempotency check
+                    idempotency_key = f"task:processed:{task_id}"
+                    acquired = redis_client.set(
+                        idempotency_key,
+                        "1",
+                        ex=86400,  # expire after 24 hours
+                        nx=True    # only set if not exists
+                    )
+                    
+                    if not acquired:
+                        # already processed — skip
+                        print(f"Task {task_id} already processed — skipping")
+                        redis_client.xack("task_completed", "agent-workers", message_id)
+                        continue
+                    
+                    # first time processing
                     print(f"Agent triggered for user {user_id} — task: {description}")
                     
-                    # stub —  will add real LangGraph agent here
+                    # stub — LangGraph agent  here 
                     
                     # acknowledge message
                     redis_client.xack("task_completed", "agent-workers", message_id)
                     print(f"Message {message_id} acknowledged")
+
 
 if __name__ == "__main__":
     process_stream()
