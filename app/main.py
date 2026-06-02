@@ -335,6 +335,23 @@ async def complete_task(task_id: str, user_id: str):
     
     return {"status": "completed"}
 
+@app.get("/v1/tasks/{user_id}")
+async def get_tasks(user_id: str):
+    with engine.connect() as conn:
+        tasks = conn.execute(
+            text("SELECT id, description, completed, created_at FROM tasks WHERE user_id = :user_id"),
+            {"user_id": user_id}
+        ).fetchall()
+        return [
+    {
+        "id": str(row[0]),
+        "description": row[1],
+        "completed": row[2],
+        "created_at": str(row[3])
+    }
+    for row in tasks
+    ]
+
 class GroupCreateRequest(BaseModel):
     user_id: str
     name: str
@@ -433,6 +450,31 @@ def get_group_members(group_id: str):
     for row in members
 ]
       
+@app.get("/v1/groups/{group_id}/feed")
+async def get_group_feed(group_id: str):
+    with engine.connect() as conn:
+        posts = conn.execute(
+            text("""
+                SELECT user_id, completed_tasks, uncompleted_tasks, 
+                       agent_reaction, post_date, created_at
+                FROM group_posts
+                WHERE group_id = :group_id
+                ORDER BY created_at DESC
+            """),
+            {"group_id": group_id}
+        ).fetchall()
+        
+        return [
+            {
+                "user_id": str(row[0]),
+                "completed_tasks": row[1],
+                "uncompleted_tasks": row[2],
+                "agent_reaction": row[3],
+                "post_date": str(row[4]),
+                "created_at": str(row[5])
+            }
+            for row in posts
+        ]
       
 
 

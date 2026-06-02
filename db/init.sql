@@ -48,3 +48,14 @@ CREATE TABLE group_members (
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (group_id, user_id)
 );
+
+CREATE TABLE group_posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID REFERENCES groups(id),
+    user_id UUID REFERENCES users(id),
+    completed_tasks TEXT[],     ← list of completed tasks
+    uncompleted_tasks TEXT[],   ← list of uncompleted tasks
+    agent_reaction TEXT,        ← one reaction for the whole day
+    post_date DATE DEFAULT CURRENT_DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
