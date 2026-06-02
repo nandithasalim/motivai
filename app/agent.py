@@ -19,7 +19,7 @@ class AgentState(TypedDict):
     description: str
     past_tasks: list
     reaction: str
-    group_ids: list
+    
 
 def retrieve_context(state: AgentState) -> AgentState:
     with engine.connect() as conn:
@@ -104,3 +104,22 @@ def store_reaction(state: AgentState) -> AgentState:
         conn.commit()
     
     return state
+
+def build_agent():
+    graph = StateGraph(AgentState)
+    
+    # add nodes
+    graph.add_node("retrieve_context", retrieve_context)
+    graph.add_node("generate_reaction", generate_reaction)
+    graph.add_node("store_reaction", store_reaction)
+    
+    # add edges
+    graph.set_entry_point("retrieve_context")
+    graph.add_edge("retrieve_context", "generate_reaction")
+    graph.add_edge("generate_reaction", "store_reaction")
+    graph.add_edge("store_reaction", END)
+    
+    return graph.compile()
+
+# create agent instance
+motivai_agent = build_agent()

@@ -14,7 +14,7 @@ celery_app = Celery(
 )
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
-
+from agent import motivai_agent
 def create_consumer_group():
     try:
         redis_client.xgroup_create(
@@ -66,7 +66,15 @@ def process_stream():
                     # first time processing
                     print(f"Agent triggered for user {user_id} — task: {description}")
                     
-                    # stub — LangGraph agent  here 
+                    
+                    result = motivai_agent.invoke({
+                        "user_id": user_id,
+                        "task_id": task_id,
+                        "description": description,
+                        "past_tasks": [],
+                        "reaction": ""
+                    })
+                    print(f"Agent reaction: {result['reaction']}")
                     
                     # acknowledge message
                     redis_client.xack("task_completed", "agent-workers", message_id)
