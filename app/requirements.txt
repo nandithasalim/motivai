@@ -10,3 +10,6 @@ redis
 celery
 python-multipart
 minio
+langgraph
+langchain
+langchain-openai
