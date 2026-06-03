@@ -34,13 +34,18 @@ def process_stream():
     print("Agent worker started — listening for task completions...")
     
     while True:
-        messages = redis_client.xreadgroup(
+        try:
+            messages = redis_client.xreadgroup(
             "agent-workers",
             "worker-1",
             {"task_completed": ">"},
             count=1,
-            block=5000
+            block=2000
         )
+        except Exception as e:
+            print(f"Redis error: {e} — retrying...")
+            time.sleep(1)
+            continue
         if messages:
             for stream_name, stream_messages in messages:
                 for message_id, message_data in stream_messages:
