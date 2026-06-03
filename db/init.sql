@@ -53,9 +53,9 @@ CREATE TABLE group_posts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id UUID REFERENCES groups(id),
     user_id UUID REFERENCES users(id),
-    completed_tasks TEXT[],     ← list of completed tasks
-    uncompleted_tasks TEXT[],   ← list of uncompleted tasks
-    agent_reaction TEXT,        ← one reaction for the whole day
+    completed_tasks TEXT[],    
+    uncompleted_tasks TEXT[],   
+    agent_reaction TEXT,       
     post_date DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

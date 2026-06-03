@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 import os
 import json
 import requests
-
+from pydantic import BaseModel, field_validator
+from enum import Enum
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -19,7 +20,33 @@ class AgentState(TypedDict):
     description: str
     past_tasks: list
     reaction: str
+
+class ToneEnum(str, Enum):
+    motivational = "motivational"
+    gentle = "gentle"
+    energetic = "energetic"
+
+class AgentReaction(BaseModel):
+    message: str
+    emoji: str
+    streak_count: int
+    tone: ToneEnum  
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v):
+        if len(v) < 10:
+            raise ValueError("Message too short")
+        if len(v) > 200:
+            raise ValueError("Message too long")
+        return v
     
+    @field_validator("emoji")
+    @classmethod
+    def validate_emoji(cls, v):
+        if len(v) > 5:
+            raise ValueError("Only one emoji allowed")
+        return v
 
 def retrieve_context(state: AgentState) -> AgentState:
     with engine.connect() as conn:
@@ -68,13 +95,14 @@ def generate_reaction(state: AgentState) -> AgentState:
         prompt_template = f.read()
     past_tasks = state["past_tasks"] 
     past_tasks = "\n".join([f"- {t['description']}" for t in past_tasks])  #"- 20min run\n- HIIT workout\n- study Python"
-    response = client.chat.completions.create(
+    response = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
     {"role": "system", "content": prompt_template},
-    {"role": "user", "content": f"User completed: {state['description']}\nPast tasks: {past_tasks}"}
-])
-    state["reaction"] = response.choices[0].message.content.strip()
+    {"role": "user", "content": f"User completed: {state['description']}\nPast tasks: {past_tasks}"}],
+        response_format=AgentReaction
+    )
+    state["reaction"] = response.choices[0].message.parsed
     return state
 
 def store_reaction(state: AgentState) -> AgentState:
