@@ -19,7 +19,7 @@ class AgentState(TypedDict):
     task_id: str
     description: str
     past_tasks: list
-    reaction: str
+    reaction: object
 
 class ToneEnum(str, Enum):
     motivational = "motivational"
@@ -126,7 +126,7 @@ def store_reaction(state: AgentState) -> AgentState:
                     "user_id": state["user_id"],
                     "completed_tasks": [state["description"]],
                     "uncompleted_tasks": [],
-                    "reaction": state["reaction"]
+                    "reaction": state["reaction"].message
                 }
             )
         conn.commit()

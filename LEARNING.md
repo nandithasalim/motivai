@@ -416,3 +416,26 @@ RESULT : I gave same task completed two times:
 agent-1  | Agent triggered for user 49a8c9ab-609e-4273-b3fe-08fb00a84cd4 — task: 30min run
 agent-1  | Message b'1780398738496-0' acknowledged
 agent-1  | Task 54814c8b-850a-49d8-8393-9786d18d8419 already processed — skipping
+
+## Day 16  — Pydantic v2 + Structured Output
+
+Pydantic v2 features used:
+field_validator: custom validation inside model
+ToneEnum: restricts tone to motivational/gentle/energetic
+
+AgentReaction model:
+message: str (10-200 chars validated)
+emoji: str (max 5 chars)
+streak_count: int
+tone: ToneEnum
+
+client.beta.chat.completions.parse():
+Forces GPT to return JSON matching AgentReaction schema
+Returns typed object not string
+response.choices[0].message.parsed → AgentReaction object
+No json.loads() needed — Pydantic validates automatically
+
+Why structured output:
+GPT free text → unpredictable → frontend must guess
+GPT structured → AgentReaction → frontend renders reliably
+Invalid response → Pydantic rejects → retry
