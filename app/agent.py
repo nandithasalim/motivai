@@ -91,7 +91,7 @@ def retrieve_context(state: AgentState) -> AgentState:
     return state
 
 def generate_reaction(state: AgentState) -> AgentState:
-    with open ("prompts/agent_reaction.txt", "r") as f:
+    with open("prompts/v1/agent_reaction.txt", "r") as f:
         prompt_template = f.read()
     past_tasks = state["past_tasks"] 
     past_tasks = "\n".join([f"- {t['description']}" for t in past_tasks])  #"- 20min run\n- HIIT workout\n- study Python"
