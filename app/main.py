@@ -18,12 +18,9 @@ from minio.error import S3Error
 import io
 from datetime import timedelta
 from datetime import datetime
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-import json
-import re
+from middleware import GuardrailMiddleware
+app = FastAPI()
+app.add_middleware(GuardrailMiddleware)
 # add MinIO client below your other clients
 minio_client = Minio(
     os.getenv("MINIO_ENDPOINT"),
@@ -38,53 +35,9 @@ if not minio_client.bucket_exists(bucket_name):
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-app = FastAPI()
 engine = create_engine(os.getenv("DATABASE_URL"))
 
 
-INJECTION_PATTERNS = [
-    r"ignore (all |previous |above )?(instructions|rules|prompts)",
-    r"you are now",
-    r"forget (everything|all|your instructions)",
-    r"act as if",
-    r"\bDAN\b",
-    r"jailbreak",
-    r"system prompt",
-]
-
-def check_injection(text: str) -> bool:
-    text_lower = text.lower()
-    for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, text_lower):
-            return True
-    return False
-
-class GuardrailMiddleware(BaseHTTPMiddleware):
-    
-    PROTECTED_PATHS = ["/v1/tasks", "/v1/groups/create", "/v1/upload_reel"]
-    
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path in self.PROTECTED_PATHS:
-            try:
-                body = await request.body()  # get bytes
-                body_text = body.decode("utf-8") # convert bytes to json string 
-                data = json.loads(body_text) # convert to python dict 
-                
-                # check all string fields for injection
-                for value in data.values():
-                    if isinstance(value, str) and check_injection(value):
-                        return JSONResponse(
-                            {"error": "Invalid input detected"},
-                            status_code=400
-                        )
-            except Exception:
-                pass  # if can't parse body → let endpoint handle it
-        
-        response = await call_next(request)
-        return response
-
-# add middleware to app — put this AFTER app = FastAPI()
-app.add_middleware(GuardrailMiddleware)
 class OnboardRequest(BaseModel):
     goals: list[str]
 @app.post("/v1/goals_embedding")
