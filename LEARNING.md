@@ -439,3 +439,36 @@ Why structured output:
 GPT free text → unpredictable → frontend must guess
 GPT structured → AgentReaction → frontend renders reliably
 Invalid response → Pydantic rejects → retry
+
+##Day 17 EOD
+## Week 6 Monday — Prompt Injection
+
+What it is:
+User-controlled input overrides LLM instructions.
+Task description is user input → attack vector.
+"Ignore all instructions" in task name → LLM might obey.
+
+Types:
+Direct: "ignore previous instructions"
+Indirect: reference external URL with instructions
+Jailbreak: "you are now DAN"
+
+Defense patterns:
+1. Regex sanitization — strip known injection patterns
+2. Embedding classification — compare input to safe/unsafe centroids
+3. Output validation — check LLM output before using
+
+Why MotivAI is vulnerable:
+Task description is user input → passed directly to agent prompt.
+Must sanitize before passing to LLM.
+
+LLM generates output
+↓
+Schema check (Pydantic) ← already done
+↓
+Length check
+↓
+Content filter (banned words)
+↓
+Pass → use output
+Fail → log rejection → use fallback
