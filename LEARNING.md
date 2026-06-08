@@ -440,8 +440,7 @@ GPT free text → unpredictable → frontend must guess
 GPT structured → AgentReaction → frontend renders reliably
 Invalid response → Pydantic rejects → retry
 
-##Day 17 EOD
-## Week 6 Monday — Prompt Injection
+## Day 17 EOD
 
 What it is:
 User-controlled input overrides LLM instructions.
@@ -472,3 +471,53 @@ Content filter (banned words)
 ↓
 Pass → use output
 Fail → log rejection → use fallback
+
+Input guardrail  → block bad task descriptions → 400 error
+Output guardrail → catch bad agent reactions → fallback message
+
+## Day 18 EOD  — Two-layer Guardrail
+
+Input guardrail (middleware.py):
+Layer 1 — Regex: fast, catches known injection patterns
+Layer 2 — Embedding: catches creative/novel attacks
+Two layers together: comprehensive protection
+
+Cosine distance classification:
+Embed input → compare to safe/unsafe centroids
+safe_centroid: average of safe task examples
+unsafe_centroid: average of injection examples
+If unsafe_dist < safe_dist AND unsafe_dist < 0.3 → block
+
+Output guardrail (agent.py):
+Content filter checks agent reaction for banned words
+If banned word found → use fallback reaction
+Fallback: hardcoded safe reaction always works
+
+Code organization:
+guardrails.py → injection detection logic
+middleware.py → FastAPI middleware
+main.py → just imports middleware
+
+## Day 19 — Semantic Cache
+
+What it is:
+Cache reactions by meaning not exact string.
+"30min run" and "30 minute run" → same cached reaction.
+
+How it works:
+First time: embed task → no match → call GPT → cache result
+Next time: embed task → cosine distance < 0.15 → return cached
+
+Storage:
+Redis key: "reaction_cache:{description}"
+Value: {"embedding": [...], "reaction": "Awesome job!"}
+TTL: 1 hour
+
+Difference from feed cache:
+Feed cache: exact key match
+Semantic cache: similarity match using cosine distance
+
+Cost benefit:
+Without cache: every task → GPT call → $0.001
+With cache: similar tasks → cache hit → $0
+At scale: 1000 similar tasks → 1 GPT call instead of 1000

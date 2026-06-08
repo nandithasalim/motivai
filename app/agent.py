@@ -8,11 +8,55 @@ import json
 import requests
 from pydantic import BaseModel, field_validator
 from enum import Enum
+import redis
+import json
+import numpy as np
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 engine = create_engine(os.getenv("DATABASE_URL"))
+redis_client = redis.from_url(os.getenv("REDIS_URL"))
 
+SEMANTIC_CACHE_THRESHOLD = 0.15
+
+def cosine_distance(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+def get_semantic_cache(description: str):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=description
+    )
+    embedding = response.data[0].embedding # list of float
+    
+    cached_keys = redis_client.keys("reaction_cache:*") # list of bytes
+    
+    for key in cached_keys:
+        cached = json.loads(redis_client.get(key)) # {"embedding": [...], "reaction": "Great job!"}
+        dist = cosine_distance(embedding, cached["embedding"])
+        if dist < SEMANTIC_CACHE_THRESHOLD:
+            print(f"Semantic cache hit — distance: {dist:.4f}")
+            return cached["reaction"]
+    
+    return None
+
+def set_semantic_cache(description: str, reaction: str):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=description
+    )
+    embedding = response.data[0].embedding
+    key = f"reaction_cache:{description[:50]}"
+    redis_client.setex(
+        key,
+        3600,
+        json.dumps({
+            "embedding": embedding,
+            "reaction": reaction
+        })
+    )
 # state definition
 class AgentState(TypedDict):
     user_id: str
@@ -91,8 +135,18 @@ def retrieve_context(state: AgentState) -> AgentState:
     return state
 
 def generate_reaction(state: AgentState) -> AgentState:
+    # check semantic cache 
+    cached = get_semantic_cache(state["description"])
+    if cached:
+        state["reaction"] = AgentReaction(
+            message=cached,
+            emoji="💪",
+            streak_count=0,
+            tone=ToneEnum.motivational
+        )
+        return state
+    
     BANNED_WORDS = ["hate", "kill", "stupid", "idiot", "terrible", "awful"]
-
     def content_filter(text: str) -> bool:
         text_lower = text.lower()
         return any(word in text_lower for word in BANNED_WORDS)
@@ -120,6 +174,7 @@ def generate_reaction(state: AgentState) -> AgentState:
         tone=ToneEnum.motivational
     )
 
+    set_semantic_cache(state["description"], reaction.message)
     state["reaction"] = reaction
     return state
 
