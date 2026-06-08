@@ -91,6 +91,12 @@ def retrieve_context(state: AgentState) -> AgentState:
     return state
 
 def generate_reaction(state: AgentState) -> AgentState:
+    BANNED_WORDS = ["hate", "kill", "stupid", "idiot", "terrible", "awful"]
+
+    def content_filter(text: str) -> bool:
+        text_lower = text.lower()
+        return any(word in text_lower for word in BANNED_WORDS)
+    
     with open("prompts/v1/agent_reaction.txt", "r") as f:
         prompt_template = f.read()
     past_tasks = state["past_tasks"] 
@@ -102,8 +108,21 @@ def generate_reaction(state: AgentState) -> AgentState:
     {"role": "user", "content": f"User completed: {state['description']}\nPast tasks: {past_tasks}"}],
         response_format=AgentReaction
     )
-    state["reaction"] = response.choices[0].message.parsed
+    reaction = response.choices[0].message.parsed
+
+# content filter
+    if content_filter(reaction.message):
+        print(f"Reaction failed content filter — using fallback")
+        reaction = AgentReaction(
+        message="Great job completing your task! Keep going 💪",
+        emoji="💪",
+        streak_count=0,
+        tone=ToneEnum.motivational
+    )
+
+    state["reaction"] = reaction
     return state
+
 
 def store_reaction(state: AgentState) -> AgentState:
     with engine.connect() as conn:
