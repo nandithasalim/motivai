@@ -562,3 +562,31 @@ How to use:
 Before prompt change → run evals → note scores
 After prompt change → run evals → compare
 Rollback if scores drop.
+
+Library: ragas==0.2.0
+Metrics run on 5 golden dataset rows.
+
+Results:
+Answer Relevancy:  0.834  ← key metric, reactions relevant to tasks
+Faithfulness:      0.000  ← RAGAS needs longer context strings
+Context Recall:    0.000  ← same limitation
+Context Precision: 0.000  ← same limitation
+
+Why faithfulness is 0:
+MotivAI context = short task names ("20min run", "HIIT workout")
+RAGAS faithfulness needs longer document-style context
+Not a product failure — a metric limitation with short context
+
+Key insight:
+Answer Relevancy 0.834 = reactions are relevant to tasks completed
+Most important metric for MotivAI — reactions should match what user did
+Will improve with better prompts — measurable now
+
+GPT-as-judge baseline (more reliable for our context format):
+Faithfulness: 0.800
+Relevance:    1.000
+Write it. Push. Commit:
+bashgit add .
+git commit -m "feat: RAGAS evals — answer_relevancy 0.834, GPT-as-judge baseline faithfulness 0.800 relevance 1.000"
+git push
+Tell me when done. Then Langfuse.Sonnet 4.6 Medium

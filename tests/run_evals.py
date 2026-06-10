@@ -3,12 +3,27 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy import create_engine, text
-from datetime import datetime
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import faithfulness, answer_relevancy, context_recall, context_precision
+from ragas.llms import LangchainLLMWrapper
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 engine = create_engine(os.getenv("LOCAL_DATABASE_URL"))
+
+# configure RAGAS to use OpenAI
+llm = LangchainLLMWrapper(ChatOpenAI(model="gpt-4o-mini"))
+embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings())
+
+faithfulness.llm = llm
+answer_relevancy.llm = llm
+answer_relevancy.embeddings = embeddings
+context_recall.llm = llm
+context_precision.llm = llm
 
 def generate_reaction_for_eval(task_completed: str, context: list[str]) -> str:
     with open("prompts/v1/agent_reaction.txt", "r") as f:
@@ -22,85 +37,70 @@ def generate_reaction_for_eval(task_completed: str, context: list[str]) -> str:
         ],
         max_tokens=200
     )
-    return response.choices[0].message.content.strip()
-
-def score_reaction(task: str, context: list[str], reaction: str, expected_theme: str) -> dict:
-    prompt = f"""Score this AI reaction on two metrics from 0 to 1:
-
-Task completed: {task}
-Past tasks context: {context}
-Reaction generated: {reaction}
-Expected theme: {expected_theme}
-
-Score these:
-1. faithfulness (0-1): does the reaction use the past tasks context?
-2. relevance (0-1): is the reaction relevant to the task completed?
-
-Respond ONLY in this JSON format:
-{{"faithfulness": 0.0, "relevance": 0.0}}"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    raw = response.choices[0].message.content.strip()
     
-    result = json.loads(response.choices[0].message.content.strip())
-    return result
+    # extract just message text from JSON
+    try:
+        data = json.loads(raw)
+        return data.get("message", raw)
+    except:
+        return raw
 
 def run_evals():
     with open("tests/golden_dataset.json", "r") as f:
         golden_data = json.load(f)
     
-    faithfulness_scores = []
-    relevance_scores = []
-    
-    print(f"Running evals on {len(golden_data[:5])} rows...")
+    task_completed = []
+    reactions = []
+    contexts = []
+    expected_reaction = []
     
     for i, row in enumerate(golden_data[:5]):
         print(f"Row {i+1}/5: {row['task_completed']}")
-        
-        reaction = generate_reaction_for_eval(
-            row["task_completed"],
-            row["retrieved_context"]
-        )
-        print(f"Reaction: {reaction[:80]}...")
-        
-        scores = score_reaction(
-            row["task_completed"],
-            row["retrieved_context"],
-            reaction,
-            row["expected_reaction_theme"]
-        )
-        
-        faithfulness_scores.append(scores["faithfulness"])
-        relevance_scores.append(scores["relevance"])
-        print(f"Scores: faithfulness={scores['faithfulness']:.2f}, relevance={scores['relevance']:.2f}")
+        result = generate_reaction_for_eval(row["task_completed"], row["retrieved_context"])
+        print(f"Reaction: {result[:80]}...")
+        reactions.append(result)
+        task_completed.append(row["task_completed"])
+        contexts.append(row["retrieved_context"] if row["retrieved_context"] else ["no past tasks"])
+        expected_reaction.append(row["expected_reaction_theme"])
     
-    avg_faithfulness = sum(faithfulness_scores) / len(faithfulness_scores)
-    avg_relevance = sum(relevance_scores) / len(relevance_scores)
+    dataset = Dataset.from_dict({
+        "question": task_completed,
+        "answer": reactions,
+        "contexts": contexts,
+        "ground_truth": expected_reaction
+    })
     
-    print(f"\n=== Eval Results ===")
-    print(f"Faithfulness:  {avg_faithfulness:.3f}")
-    print(f"Relevance:     {avg_relevance:.3f}")
+    print("\nRunning RAGAS evaluation...")
+    result = evaluate(
+        dataset,
+        metrics=[faithfulness, answer_relevancy, context_recall, context_precision]
+    )
+    scores = result.to_pandas()
+    print(f"\n=== RAGAS Scores ===")
+    print(f"Faithfulness:      {scores['faithfulness'].mean():.3f}")
+    print(f"Answer Relevancy:  {scores['answer_relevancy'].mean():.3f}")
+    print(f"Context Recall:    {scores['context_recall'].mean():.3f}")
+    print(f"Context Precision: {scores['context_precision'].mean():.3f}")
     
     with engine.connect() as conn:
         conn.execute(
             text("""
-                INSERT INTO evals 
-                (faithfulness, answer_relevancy, context_recall, context_precision)
-                VALUES (:faithfulness, :answer_relevancy, :context_recall, :context_precision)
-            """),
-            {
-                "faithfulness": avg_faithfulness,
-                "answer_relevancy": avg_relevance,
-                "context_recall": avg_relevance,
-                "context_precision": avg_faithfulness
-            }
-        )
+            INSERT INTO evals 
+            (faithfulness, answer_relevancy, context_recall, context_precision)
+            VALUES (:faithfulness, :answer_relevancy, :context_recall, :context_precision)
+        """),
+        {
+            "faithfulness": float(scores['faithfulness'].mean()),
+            "answer_relevancy": float(scores['answer_relevancy'].mean()),
+            "context_recall": float(scores['context_recall'].mean()),
+            "context_precision": float(scores['context_precision'].mean())
+        }
+    )
         conn.commit()
     
     print("Scores saved to DB.")
-    return {"faithfulness": avg_faithfulness, "relevance": avg_relevance}
+    return result
 
 if __name__ == "__main__":
     run_evals()
