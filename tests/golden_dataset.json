@@ -1,0 +1,152 @@
+[
+    {
+      "user_goal": "fitness",
+      "task_completed": "30min run",
+      "retrieved_context": ["20min run yesterday", "HIIT workout 2 days ago"],
+      "expected_reaction_theme": "progress, streak, running improvement"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "HIIT workout",
+      "retrieved_context": ["30min run yesterday", "yoga session"],
+      "expected_reaction_theme": "consistency, variety, fitness streak"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "built REST API",
+      "retrieved_context": ["learned Python basics", "built simple script"],
+      "expected_reaction_theme": "skill progression, coding streak"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "solved 3 leetcode problems",
+      "retrieved_context": ["solved 1 leetcode problem", "studied algorithms"],
+      "expected_reaction_theme": "improvement, problem solving streak"
+    },
+    {
+      "user_goal": "reading",
+      "task_completed": "read 20 pages",
+      "retrieved_context": ["read 10 pages yesterday", "finished chapter 1"],
+      "expected_reaction_theme": "reading habit, page count improvement"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "5km run",
+      "retrieved_context": ["3km run", "2km run", "1km run"],
+      "expected_reaction_theme": "distance improvement, running progress"
+    },
+    {
+      "user_goal": "meditation",
+      "task_completed": "10min meditation",
+      "retrieved_context": [],
+      "expected_reaction_theme": "first task, encouragement, starting journey"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "deployed to production",
+      "retrieved_context": ["built API", "wrote tests", "set up Docker"],
+      "expected_reaction_theme": "milestone, full stack, deployment achievement"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "yoga session",
+      "retrieved_context": ["HIIT workout", "30min run", "strength training"],
+      "expected_reaction_theme": "variety, recovery, balanced routine"
+    },
+    {
+      "user_goal": "reading",
+      "task_completed": "finished a book",
+      "retrieved_context": ["read 20 pages", "read 30 pages", "read 15 pages"],
+      "expected_reaction_theme": "milestone, completion, reading achievement"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "morning run",
+      "retrieved_context": ["evening run yesterday"],
+      "expected_reaction_theme": "consistency, morning habit, streak"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "code review completed",
+      "retrieved_context": ["wrote unit tests", "refactored module"],
+      "expected_reaction_theme": "code quality, team contribution"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "100 pushups",
+      "retrieved_context": ["50 pushups", "75 pushups"],
+      "expected_reaction_theme": "strength improvement, milestone"
+    },
+    {
+      "user_goal": "reading",
+      "task_completed": "read research paper",
+      "retrieved_context": ["read blog post", "read documentation"],
+      "expected_reaction_theme": "knowledge depth, learning progression"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "fixed critical bug",
+      "retrieved_context": ["debugged memory leak", "fixed API error"],
+      "expected_reaction_theme": "problem solving, debugging skill"
+    },
+    {
+      "user_goal": "meditation",
+      "task_completed": "30min meditation",
+      "retrieved_context": ["10min meditation", "15min meditation", "20min meditation"],
+      "expected_reaction_theme": "duration improvement, mindfulness streak"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "swim 1km",
+      "retrieved_context": ["swim 500m", "swim 750m"],
+      "expected_reaction_theme": "distance improvement, cross training"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "learned new framework",
+      "retrieved_context": ["built project in old framework"],
+      "expected_reaction_theme": "growth mindset, learning new skills"
+    },
+    {
+      "user_goal": "reading",
+      "task_completed": "read 50 pages",
+      "retrieved_context": ["read 20 pages", "read 30 pages"],
+      "expected_reaction_theme": "reading speed improvement, consistency"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "completed marathon training run",
+      "retrieved_context": ["5km run", "10km run", "15km run"],
+      "expected_reaction_theme": "major milestone, training progression"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "open source contribution",
+      "retrieved_context": ["built personal project", "wrote documentation"],
+      "expected_reaction_theme": "community contribution, growth"
+    },
+    {
+      "user_goal": "meditation",
+      "task_completed": "guided meditation session",
+      "retrieved_context": ["breathing exercise", "body scan meditation"],
+      "expected_reaction_theme": "mindfulness variety, consistency"
+    },
+    {
+      "user_goal": "fitness",
+      "task_completed": "strength training",
+      "retrieved_context": ["cardio workout", "flexibility training"],
+      "expected_reaction_theme": "balanced fitness, variety"
+    },
+    {
+      "user_goal": "reading",
+      "task_completed": "took notes while reading",
+      "retrieved_context": ["read without notes", "read 20 pages"],
+      "expected_reaction_theme": "learning improvement, retention habit"
+    },
+    {
+      "user_goal": "coding",
+      "task_completed": "wrote unit tests",
+      "retrieved_context": ["built feature without tests"],
+      "expected_reaction_theme": "code quality improvement, best practices"
+    }
+  ]
