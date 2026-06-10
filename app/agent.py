@@ -11,6 +11,7 @@ from enum import Enum
 import redis
 import json
 import numpy as np
+import time
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -69,6 +70,22 @@ def set_semantic_cache(description: str, reaction: str):
             "reaction": reaction
         })
     )
+def call_gpt_with_retry(model: str, messages: list, max_retries: int = 3): 
+    for attempt in range(max_retries):
+        try:
+            response = client.beta.chat.completions.parse(
+                model=model,
+                messages=messages,
+                max_tokens=200,
+                response_format=AgentReaction
+            )
+            return response.choices[0].message.parsed
+        except Exception as e:
+            wait_time = 2 ** attempt  # 1s, 2s, 4s
+            print(f"Attempt {attempt + 1} failed: {e} — retrying in {wait_time}s")
+            if attempt < max_retries - 1:
+                time.sleep(wait_time)
+    return None
 # state definition
 class AgentState(TypedDict):
     user_id: str
@@ -172,24 +189,15 @@ def generate_reaction(state: AgentState) -> AgentState:
     primary_model = get_model(streak_count)
 
     FALLBACK_CHAIN = [primary_model, "gpt-4o-mini"] if primary_model == "gpt-4o" else ["gpt-4o-mini", "gpt-4o"]
-    for model in FALLBACK_CHAIN:
-        try:
-            response = client.beta.chat.completions.parse(
-            model=model,
-            messages=[
+    messages=[
                 {"role": "system", "content": prompt_template},
                 {"role": "user", "content": f"User completed: {state['description']}\nPast tasks:\n{past_tasks if past_tasks else 'none'}\nStreak: {streak_count} days"}
-            ],
-            max_tokens=100,
-            response_format=AgentReaction
-            )
-            reaction = response.choices[0].message.parsed
-            if reaction:
-                print(f"Model used: {model} — streak: {streak_count}")
-                break
-        except Exception as e:
-            print(f"{model} failed: {e} — trying next")
-            continue
+            ]
+    for model in FALLBACK_CHAIN:
+        reaction = call_gpt_with_retry(model, messages)
+        if reaction:
+            print(f"Model used: {model} — streak: {streak_count}")
+            break
 
     # content filter
     if not reaction or content_filter(reaction.message):

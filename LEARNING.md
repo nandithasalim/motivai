@@ -521,3 +521,19 @@ Cost benefit:
 Without cache: every task → GPT call → $0.001
 With cache: similar tasks → cache hit → $0
 At scale: 1000 similar tasks → 1 GPT call instead of 1000
+
+## DAY 20  httpx retries + circuit breaker
+Why retries:
+OpenAI has outages → without retries agent crashes.
+Exponential backoff: 1s, 2s, 4s between retries.
+
+Circuit breaker pattern:
+Three states: CLOSED (normal), OPEN (failing fast), HALF-OPEN (testing)
+After N failures → circuit opens → fail immediately
+After timeout → half-open → test one request
+Prevents system overload during outages
+
+Why circuit breaker over just retries:
+Retries waste time during long outages.
+Circuit breaker fails fast → resources freed
+System stays responsive even when dependency is down.
