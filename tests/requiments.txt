@@ -1,0 +1,7 @@
+ragas==0.1.21
+datasets
+langchain-community
+openai
+sqlalchemy
+psycopg2-binary
+python-dotenv

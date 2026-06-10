@@ -59,3 +59,12 @@ CREATE TABLE group_posts (
     post_date DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE evals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    faithfulness FLOAT,
+    answer_relevancy FLOAT,
+    context_recall FLOAT,
+    context_precision FLOAT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);

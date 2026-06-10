@@ -537,3 +537,28 @@ Why circuit breaker over just retries:
 Retries waste time during long outages.
 Circuit breaker fails fast → resources freed
 System stays responsive even when dependency is down.
+
+## Day 21 — RAGAS Evals
+
+What evals are:
+Automatic quality measurement for AI output.
+Like unit tests but for reaction quality.
+
+Golden dataset:
+25 manually created test cases.
+Each row: task, context, expected theme.
+Ground truth for quality measurement.
+
+GPT-as-judge:
+Use GPT to score each reaction on faithfulness and relevance.
+Faithfulness: does reaction use retrieved context?
+Relevance: is reaction relevant to task completed?
+
+Baseline scores:
+Faithfulness: 0.800
+Relevance:    1.000
+
+How to use:
+Before prompt change → run evals → note scores
+After prompt change → run evals → compare
+Rollback if scores drop.
