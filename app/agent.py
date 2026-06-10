@@ -18,7 +18,19 @@ engine = create_engine(os.getenv("DATABASE_URL"))
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 
 SEMANTIC_CACHE_THRESHOLD = 0.15
+MILESTONE_STREAKS = [7, 14, 21, 30, 60, 100]
+BANNED_WORDS = ["hate", "kill", "stupid", "idiot", "terrible", "awful"]
 
+def content_filter(text: str) -> bool:
+    text_lower = text.lower()
+    return any(word in text_lower for word in BANNED_WORDS)
+
+def get_model(streak_count: int) -> str:
+    if streak_count in MILESTONE_STREAKS:
+        return "gpt-4o"
+    return "gpt-4o-mini"
+
+FALLBACK_CHAIN = ["gpt-4o-mini", "gpt-4o"]  # start cheap, escalate if fails
 def cosine_distance(a, b):
     a = np.array(a)
     b = np.array(b)
@@ -31,7 +43,7 @@ def get_semantic_cache(description: str):
     )
     embedding = response.data[0].embedding # list of float
     
-    cached_keys = redis_client.keys("reaction_cache:*") # list of bytes
+    cached_keys = redis_client.keys("reaction_cache:*") # list of bytes - # → [b"reaction_cache:30min run", b"reaction_cache:HIIT workout"]
     
     for key in cached_keys:
         cached = json.loads(redis_client.get(key)) # {"embedding": [...], "reaction": "Great job!"}
@@ -81,8 +93,8 @@ class AgentReaction(BaseModel):
     def validate_message(cls, v):
         if len(v) < 10:
             raise ValueError("Message too short")
-        if len(v) > 200:
-            raise ValueError("Message too long")
+        if len(v) > 250:
+            v = v[:247] + "..."
         return v
     
     @field_validator("emoji")
@@ -146,26 +158,41 @@ def generate_reaction(state: AgentState) -> AgentState:
         )
         return state
     
-    BANNED_WORDS = ["hate", "kill", "stupid", "idiot", "terrible", "awful"]
-    def content_filter(text: str) -> bool:
-        text_lower = text.lower()
-        return any(word in text_lower for word in BANNED_WORDS)
-    
     with open("prompts/v1/agent_reaction.txt", "r") as f:
         prompt_template = f.read()
     past_tasks = state["past_tasks"] 
     past_tasks = "\n".join([f"- {t['description']}" for t in past_tasks])  #"- 20min run\n- HIIT workout\n- study Python"
-    response = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
-        messages=[
-    {"role": "system", "content": prompt_template},
-    {"role": "user", "content": f"User completed: {state['description']}\nPast tasks: {past_tasks}"}],
-        response_format=AgentReaction
-    )
-    reaction = response.choices[0].message.parsed
+    reaction = None
 
-# content filter
-    if content_filter(reaction.message):
+    with engine.connect() as conn:
+        streak_count = conn.execute(
+        text("SELECT COUNT(*) FROM tasks WHERE user_id = :user_id AND completed = TRUE"),
+        {"user_id": state["user_id"]}
+        ).fetchone()[0]
+    primary_model = get_model(streak_count)
+
+    FALLBACK_CHAIN = [primary_model, "gpt-4o-mini"] if primary_model == "gpt-4o" else ["gpt-4o-mini", "gpt-4o"]
+    for model in FALLBACK_CHAIN:
+        try:
+            response = client.beta.chat.completions.parse(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt_template},
+                {"role": "user", "content": f"User completed: {state['description']}\nPast tasks:\n{past_tasks if past_tasks else 'none'}\nStreak: {streak_count} days"}
+            ],
+            max_tokens=100,
+            response_format=AgentReaction
+            )
+            reaction = response.choices[0].message.parsed
+            if reaction:
+                print(f"Model used: {model} — streak: {streak_count}")
+                break
+        except Exception as e:
+            print(f"{model} failed: {e} — trying next")
+            continue
+
+    # content filter
+    if not reaction or content_filter(reaction.message):
         print(f"Reaction failed content filter — using fallback")
         reaction = AgentReaction(
         message="Great job completing your task! Keep going 💪",
