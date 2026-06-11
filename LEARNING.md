@@ -585,8 +585,43 @@ Will improve with better prompts — measurable now
 GPT-as-judge baseline (more reliable for our context format):
 Faithfulness: 0.800
 Relevance:    1.000
-Write it. Push. Commit:
-bashgit add .
-git commit -m "feat: RAGAS evals — answer_relevancy 0.834, GPT-as-judge baseline faithfulness 0.800 relevance 1.000"
-git push
-Tell me when done. Then Langfuse.Sonnet 4.6 Medium
+
+## DAY 22 pytest
+
+What pytest is:
+Runs test functions automatically.
+assert checks expected vs actual.
+PASSED/FAILED output tells you if code works.
+
+Why tests matter:
+Change code → run pytest → know immediately if something broke.
+No manual curl testing needed.
+
+What we tested:
+content_filter — catches banned words, case insensitive
+get_model — milestone streaks use gpt-4o, regular days use gpt-4o-mini
+check_injection — blocks injection patterns, allows safe tasks
+
+Why we copied functions to test file:
+LangGraph crashes on Python 3.13 locally.
+Pure utility functions don't need LangGraph.
+Solution: move to utils.py or copy to test file.
+
+Mocking (theory):
+Replace real API calls with fake responses.
+No OpenAI cost during testing.
+patch("agent.client") → fake client
+
+PYTEST WILL AUTOMATICALLY RUNS TEST FUNCTIONS AND TELL IF CODE WORKING 
+:pytest tests/test_agent.py -v
+
+tests/test_agent.py::test_content_filter_catches_banned_words PASSED            [ 14%]
+tests/test_agent.py::test_content_filter_case_insensitive PASSED                [ 28%]
+tests/test_agent.py::test_get_model_milestone_7 PASSED                          [ 42%]
+tests/test_agent.py::test_get_model_milestone_30 PASSED                         [ 57%]
+tests/test_agent.py::test_get_model_regular_day PASSED                          [ 71%]
+tests/test_agent.py::test_injection_blocked PASSED                              [ 85%]
+tests/test_agent.py::test_safe_task_allowed PASSED                              [100%]
+
+================================== 7 passed in 5.22s ==================================
+nandithas@nandithas-Air motive % 
