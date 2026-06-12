@@ -19,7 +19,7 @@ jobs: # wat to do
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install pytest
+        run: pip install pytest numpy openai python-dotenv
       
       - name: Run unit tests
         run: pytest tests/test_agent.py -v
