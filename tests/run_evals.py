@@ -24,6 +24,33 @@ answer_relevancy.llm = llm
 answer_relevancy.embeddings = embeddings
 context_recall.llm = llm
 context_precision.llm = llm
+def llm_judge_reaction(task: str, reaction: str, context: list) -> dict:
+    prompt = f"""You are evaluating a motivational AI reaction.
+
+Task completed: {task}
+Past tasks context: {context}
+Reaction generated: {reaction}
+
+Score this reaction 1-5 on:
+1. Encouraging (1=generic praise, 5=specific and deeply motivating)
+2. Specific (1=could apply to anyone, 5=clearly references user's actual history)
+
+Respond ONLY in JSON:
+{{"encouraging": 0, "specific": 0, "reasoning": "brief reason"}}"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o",  # stronger model judges weaker model output
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw = response.choices[0].message.content.strip()
+    print(f"LLM Judge raw response: {raw[:100]}")  # debug
+    
+    try:
+        clean = raw.replace("```json", "").replace("```", "").strip() 
+        #GPT is trained to format code in markdown by default ```json {"key": "value"}``` to make it more readable 
+        return json.loads(clean)
+    except:
+        return {"encouraging": 3, "specific": 3, "reasoning": "parse error"}
 
 def generate_reaction_for_eval(task_completed: str, context: list[str]) -> str:
     with open("prompts/v1/agent_reaction.txt", "r") as f:
@@ -54,6 +81,8 @@ def run_evals():
     reactions = []
     contexts = []
     expected_reaction = []
+    encouraging_scores = []
+    specific_scores = []
     
     for i, row in enumerate(golden_data[:5]):
         print(f"Row {i+1}/5: {row['task_completed']}")
@@ -63,6 +92,14 @@ def run_evals():
         task_completed.append(row["task_completed"])
         contexts.append(row["retrieved_context"] if row["retrieved_context"] else ["no past tasks"])
         expected_reaction.append(row["expected_reaction_theme"])
+
+        score = llm_judge_reaction(
+        row["task_completed"],
+        result,
+        row["retrieved_context"])
+        encouraging_scores.append(score["encouraging"])
+        specific_scores.append(score["specific"])
+        print(f"LLM Judge Row {i+1}: encouraging={score['encouraging']}, specific={score['specific']}")
     
     dataset = Dataset.from_dict({
         "question": task_completed,
@@ -82,7 +119,10 @@ def run_evals():
     print(f"Answer Relevancy:  {scores['answer_relevancy'].mean():.3f}")
     print(f"Context Recall:    {scores['context_recall'].mean():.3f}")
     print(f"Context Precision: {scores['context_precision'].mean():.3f}")
-    
+    avg_encouraging = sum(encouraging_scores) / len(encouraging_scores)
+    avg_specific = sum(specific_scores) / len(specific_scores)
+    print(f"Avg Encouraging: {avg_encouraging:.2f}/5")
+    print(f"Avg Specific:    {avg_specific:.2f}/5")
     with engine.connect() as conn:
         conn.execute(
             text("""

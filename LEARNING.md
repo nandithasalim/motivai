@@ -625,3 +625,47 @@ tests/test_agent.py::test_safe_task_allowed PASSED                              
 
 ================================== 7 passed in 5.22s ==================================
 nandithas@nandithas-Air motive % 
+
+## day 23 — LLM-as-judge
+
+What LLM-as-judge is:
+Use stronger LLM (gpt-4o) to grade weaker LLM (gpt-4o-mini) output.
+Measures subjective quality — tone, encouragement, specificity.
+RAGAS measures factuality, LLM-judge measures how good it feels.
+
+vs RAGAS:
+RAGAS:      faithfulness — did reaction use retrieved context?
+LLM-judge:  encouraging — does reaction motivate the user?
+            specific — does it reference user's actual history?
+
+Bias risks:
+Same model judging itself → inflated scores.
+Fix: use different model (gpt-4o judges gpt-4o-mini output).
+
+Score 1-5:
+1 = generic, could apply to anyone
+3 = decent, somewhat relevant
+5 = highly specific, deeply motivating
+
+Why GPT returns markdown backticks:
+GPT trained to format code nicely → wraps JSON in ```json blocks.
+Fix: strip backticks before json.loads().
+Safety net: try/except returns default 3/3 if parsing fails.
+
+Our baseline scores:
+Encouraging: 4.0/5 — reactions are motivating
+Specific:    4.4/5 — reactions reference user history well
+
+How to use scores:
+Change prompt → run evals → compare scores.
+If encouraging drops below 3.5 → prompt needs work.
+If specific drops below 3.0 → retrieval context not being used.
+
+Prompt format for LLM judge:
+Ask for JSON only, no markdown.
+Strip backticks as safety net.
+try/except fallback to 3/3 if parse fails.
+result : 
+Avg Encouraging: 4.00/5
+Avg Specific:    4.60/5
+Scores saved to DB.
