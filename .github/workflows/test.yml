@@ -23,3 +23,5 @@ jobs: # wat to do
       
       - name: Run unit tests
         run: pytest tests/test_agent.py -v
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   
