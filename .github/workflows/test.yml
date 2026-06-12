@@ -1,0 +1,25 @@
+name: MotivAI Tests
+
+on:  # when to trigger 
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs: # wat to do 
+  test:  # name of the job 
+    runs-on: ubuntu-latest #githib provide ubuntu servers
+    
+    steps:
+      - uses: actions/checkout@v3  # download github repo code into ubuntu server 
+      
+      - name: Set up Python  # setup python environment on ubuntu server
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install pytest
+      
+      - name: Run unit tests
+        run: pytest tests/test_agent.py -v
