@@ -169,7 +169,7 @@ def retrieve_context(state: AgentState) -> AgentState:
         ]
     
     return state
-@observe()
+@observe(name="generate_reaction",as_type="agent")
 def generate_reaction(state: AgentState) -> AgentState:
     # check semantic cache 
     cached = get_semantic_cache(state["description"])
@@ -200,6 +200,7 @@ def generate_reaction(state: AgentState) -> AgentState:
                 {"role": "system", "content": prompt_template},
                 {"role": "user", "content": f"User completed: {state['description']}\nPast tasks:\n{past_tasks if past_tasks else 'none'}\nStreak: {streak_count} days"}
             ]
+    
     for model in FALLBACK_CHAIN:
         reaction = call_gpt_with_retry(model, messages)
         if reaction:

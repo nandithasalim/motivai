@@ -669,3 +669,25 @@ result :
 Avg Encouraging: 4.00/5
 Avg Specific:    4.60/5
 Scores saved to DB.
+
+## day 24- Langfuse Concepts
+
+Trace:      complete user action — one per task completion
+Span:       one step inside trace — retrieve, generate, store
+Generation: specifically GPT call — has tokens, cost, latency
+Score:      quality rating attached to trace
+
+Feature tagging:
+as_type="agent" → categorize as agent span in dashboard
+Future: as_type for feed, moderation → cost breakdown per feature
+
+What Langfuse shows per trace:
+latency: 4.11s
+input: user_id, description, past_tasks
+output: reaction message
+type: agent
+
+Why tagging matters:
+Filter dashboard by feature
+Compare cost: agent vs feed vs moderation
+Know where to optimize
