@@ -13,6 +13,13 @@ import json
 import numpy as np
 import time
 load_dotenv()
+from langfuse import Langfuse,observe
+
+langfuse = Langfuse(
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    host=os.getenv("LANGFUSE_HOST")
+)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 engine = create_engine(os.getenv("DATABASE_URL"))
@@ -162,7 +169,7 @@ def retrieve_context(state: AgentState) -> AgentState:
         ]
     
     return state
-
+@observe()
 def generate_reaction(state: AgentState) -> AgentState:
     # check semantic cache 
     cached = get_semantic_cache(state["description"])
