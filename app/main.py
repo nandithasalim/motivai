@@ -19,6 +19,11 @@ import io
 from datetime import timedelta
 from datetime import datetime
 from middleware import GuardrailMiddleware
+from fastapi import Response
+import time
+from metrics import requests_total, feed_latency
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from metrics import requests_total, feed_latency, llm_calls_total
 app = FastAPI()
 app.add_middleware(GuardrailMiddleware)
 # add MinIO client below your other clients
@@ -68,6 +73,8 @@ async def onboard(request: OnboardRequest):
 
 @app.get("/v1/feed_return")
 async def get_feed(user_id: str, query: str = ""):
+    requests_total.labels(endpoint="feed").inc()
+    start = time.time()
     #checks if feed is in redis cache, if yes return, if no compute and store in redis before returning
     cache_key = f"feed:{user_id}"  #redis reads only strings
     cached= redis_client.get(cache_key)
@@ -164,7 +171,8 @@ async def get_feed(user_id: str, query: str = ""):
         final_result=[rrf_scores[id]["data"] for id in sorted_ids]
         if final_result:
             redis_client.setex(cache_key, 300, json.dumps(final_result)) # store in redis for 5 mins
-        return final_result
+        feed_latency.observe(time.time() - start)
+        return final_result  
     
 
 @app.post("/v1/upload_reel")
@@ -477,6 +485,12 @@ async def get_group_feed(group_id: str):
             }
             for row in posts
         ]
-      
+
+@app.get("/metrics")
+async def metrics():
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
 
 

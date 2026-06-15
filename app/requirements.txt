@@ -14,3 +14,4 @@ langgraph
 langchain
 langchain-openai
 langfuse>=2.0.0
+prometheus-client
