@@ -691,3 +691,25 @@ Why tagging matters:
 Filter dashboard by feature
 Compare cost: agent vs feed vs moderation
 Know where to optimize
+## day 25 — Prometheus
+
+Four metric types:
+Counter:   only goes up — requests_total, llm_calls_total
+Gauge:     current value — memory, connections
+Histogram: distribution of values — feed_latency, agent_latency
+Summary:   pre-calculated percentiles
+
+p95 latency:
+95% of requests complete faster than this value
+Amazon always asks p95 not average
+Average hides outliers — p95 shows real user experience
+
+What I built:
+GET /metrics endpoint — Prometheus scrapes this
+motivai_requests_total — count per endpoint
+motivai_feed_latency_seconds — histogram, feed was 49ms (cache hit)
+motivai_agent_latency_seconds — histogram, agent ~4s
+
+Prometheus metrics reset on container restart:
+Lives in memory — not persisted
+For persistence: use Prometheus server + long term storage

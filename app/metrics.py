@@ -7,18 +7,6 @@ requests_total = Counter(
     ["endpoint"]
 )
 
-llm_calls_total = Counter(
-    "motivai_llm_calls_total",
-    "Total LLM calls",
-    ["model", "feature"]
-)
-
-errors_total = Counter(
-    "motivai_errors_total",
-    "Total errors",
-    ["endpoint"]
-)
-
 # histograms
 feed_latency = Histogram(
     "motivai_feed_latency_seconds",
