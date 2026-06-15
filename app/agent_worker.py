@@ -4,7 +4,9 @@ import redis
 import os
 import json
 import time
-
+import sys
+sys.path.insert(0, '/app')
+from metrics import agent_latency, llm_calls_total
 load_dotenv()
 
 celery_app = Celery(
@@ -71,7 +73,7 @@ def process_stream():
                     # first time processing
                     print(f"Agent triggered for user {user_id} — task: {description}")
                     
-                    
+                    start = time.time()
                     result = motivai_agent.invoke({
                         "user_id": user_id,
                         "task_id": task_id,
@@ -80,7 +82,8 @@ def process_stream():
                         "reaction": ""
                     })
                     print(f"Agent reaction: {result['reaction']}")
-                    
+                    agent_latency.observe(time.time() - start)
+                    llm_calls_total.labels(model="gpt-4o-mini", feature="agent").inc()
                     # acknowledge message
                     redis_client.xack("task_completed", "agent-workers", message_id)
                     print(f"Message {message_id} acknowledged")
