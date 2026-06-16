@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram
 
 # counters
 requests_total = Counter(

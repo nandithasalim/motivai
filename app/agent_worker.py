@@ -2,11 +2,11 @@ from celery import Celery
 from dotenv import load_dotenv
 import redis
 import os
-import json
 import time
 import sys
 sys.path.insert(0, '/app')
 from metrics import agent_latency, llm_calls_total
+from agent import motivai_agent
 load_dotenv()
 
 celery_app = Celery(
@@ -16,7 +16,6 @@ celery_app = Celery(
 )
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
-from agent import motivai_agent
 def create_consumer_group():
     try:
         redis_client.xgroup_create(

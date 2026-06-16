@@ -5,15 +5,14 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
 import json
-import requests
 from pydantic import BaseModel, field_validator
 from enum import Enum
 import redis
-import json
 import numpy as np
 import time
-load_dotenv()
 from langfuse import Langfuse,observe
+load_dotenv()
+
 
 langfuse = Langfuse(
     public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
@@ -209,7 +208,7 @@ def generate_reaction(state: AgentState) -> AgentState:
 
     # content filter
     if not reaction or content_filter(reaction.message):
-        print(f"Reaction failed content filter — using fallback")
+        print("Reaction failed content filter — using fallback")
         reaction = AgentReaction(
         message="Great job completing your task! Keep going 💪",
         emoji="💪",

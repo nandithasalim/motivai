@@ -1,29 +1,28 @@
-from fastapi import FastAPI , HTTPException
-from openai import OpenAI
-from dotenv import load_dotenv
-import numpy as np
-import redis
-import json
-from sqlalchemy import create_engine, text
+# all imports first
 import os
-from pydantic import BaseModel
-from fastapi import UploadFile, File
-import shutil
+import json
 import uuid
-from reels_celery import process_reel
-from celery.result import AsyncResult
-load_dotenv()
-from minio import Minio
-from minio.error import S3Error
 import io
-from datetime import timedelta
-from datetime import datetime
-from middleware import GuardrailMiddleware
-from fastapi import Response
 import time
+from datetime import timedelta, datetime
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from openai import OpenAI
+from sqlalchemy import create_engine, text
+from pydantic import BaseModel
+from celery.result import AsyncResult
+from minio import Minio
+from middleware import GuardrailMiddleware
 from metrics import requests_total, feed_latency
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from metrics import requests_total, feed_latency, llm_calls_total
+from reels_celery import process_reel
+import redis
+import numpy as np
+
+# then load_dotenv
+load_dotenv()
+
+# then app setup
 app = FastAPI()
 app.add_middleware(GuardrailMiddleware)
 # add MinIO client below your other clients
