@@ -1,6 +1,7 @@
 services:
   db:
     image: pgvector/pgvector:pg16
+    profiles: ["app", "all"]
     ports:
       - "5433:5432"
     environment:
@@ -8,11 +9,12 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
-      -  ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
   
   api:
     build: .
+    profiles: ["app", "all"]
     ports:
       - "8000:8000"
     depends_on:
@@ -27,11 +29,13 @@ services:
   
   redis:
     image: redis:7-alpine
+    profiles: ["app", "all"]
     ports:
       - "6379:6379"
       
   worker:
     build: .
+    profiles: ["app", "all"]
     command: celery -A reels_celery worker --loglevel=info
     depends_on:
       - db
@@ -46,6 +50,7 @@ services:
 
   minio:
     image: minio/minio
+    profiles: ["app", "all"]
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -58,6 +63,7 @@ services:
 
   flower:
     image: mher/flower
+    profiles: ["monitoring", "all"]
     command: celery --broker=redis://redis:6379 flower --port=5555
     ports:
       - "5555:5555"
@@ -66,6 +72,7 @@ services:
   
   agent:
     build: .
+    profiles: ["app", "all"]
     command: python -u agent_worker.py
     depends_on:
       - db
