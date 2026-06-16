@@ -713,3 +713,68 @@ motivai_agent_latency_seconds — histogram, agent ~4s
 Prometheus metrics reset on container restart:
 Lives in memory — not persisted
 For persistence: use Prometheus server + long term storage
+
+## day 26 — Docker Multi-stage Builds
+
+What is multi-stage build:
+Two stages — builder and runtime.
+Builder: installs all packages including build tools (gcc, cmake).
+Runtime: copies only installed packages, leaves build tools behind.
+Result: smaller image, faster deploys, less attack surface.
+
+Why build tools not needed in production:
+gcc needed to compile numpy/other packages during install.
+gcc NOT needed to run already-compiled packages.
+Multi-stage leaves gcc behind → smaller final image.
+
+Layer caching:
+Docker caches each layer separately.
+requirements.txt changes rarely → pip install layer cached.
+app code changes often → copy layer rebuilds.
+Order: put rarely changing (requirements) before frequently changing (code).
+
+docker-compose profiles:
+Group services by purpose:
+  app:        db, api, redis, worker, minio, agent
+  monitoring: flower
+  all:        everything
+
+Commands:
+docker compose --profile app up -d        ← core only
+docker compose --profile monitoring up -d  ← flower only
+docker compose --profile all up -d        ← everything
+
+Results:
+Before: couldn't measure (already rebuilt)
+After multi-stage: 592MB per image
+Still large because packages are heavy:
+  langfuse, langchain, ragas → large ML dependencies
+  numpy → large compiled library
+Image size dominated by packages not build tools in this case.
+
+.dockerignore:
+Prevents unnecessary files copying into image:
+  .git, tests/, docs/, __pycache__, .env
+Didn't reduce size significantly — packages dominate.
+
+Dockerfile structure:
+# Stage 1 — builder
+FROM python:3.11-slim AS builder
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Stage 2 — runtime
+FROM python:3.11-slim
+COPY --from=builder /usr/local/lib/python3.11/site-packages ...
+COPY app/ .
+COPY prompts/ ./prompts/
+CMD uvicorn main:app
+
+Input to test:
+docker compose build --no-cache
+docker images | grep motive
+
+Output:
+motive-api    592MB
+motive-worker 592MB
+motive-agent  592MB
