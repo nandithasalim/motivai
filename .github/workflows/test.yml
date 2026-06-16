@@ -10,24 +10,23 @@ jobs: # wat to do
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4 # download github repo code into ubuntu server
+      - name: Set up Python # setup python environment on ubuntu server
+        uses: actions/setup-python@v5  
         with:
           python-version: '3.11'
       - name: Install ruff
         run: pip install ruff
       - name: Run ruff
         run: ruff check app/
-        
+
   test:  # name of the job 
     runs-on: ubuntu-latest #githib provide ubuntu servers
     
     steps:
-      - uses: actions/checkout@v3  # download github repo code into ubuntu server 
-      
-      - name: Set up Python  # setup python environment on ubuntu server
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
