@@ -16,3 +16,4 @@ langchain-openai
 langfuse>=2.0.0
 prometheus-client
 ruff
+boto3
