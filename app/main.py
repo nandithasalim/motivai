@@ -16,6 +16,7 @@ from middleware import GuardrailMiddleware
 from metrics import requests_total, feed_latency
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from reels_celery import process_reel
+from storage import upload_file, get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
 
@@ -26,21 +27,15 @@ load_dotenv()
 app = FastAPI()
 app.add_middleware(GuardrailMiddleware)
 # add MinIO client below your other clients
-minio_client = Minio(
-    os.getenv("MINIO_ENDPOINT"),
-    access_key=os.getenv("MINIO_ACCESS_KEY"),
-    secret_key=os.getenv("MINIO_SECRET_KEY"),
-    secure=False  # no HTTPS locally
-)
-# auto-create bucket if not exists
-bucket_name = os.getenv("MINIO_BUCKET")
-if not minio_client.bucket_exists(bucket_name):
-    minio_client.make_bucket(bucket_name)
+
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 engine = create_engine(os.getenv("DATABASE_URL"))
 
+@app.on_event("startup")
+async def startup():
+    ensure_bucket_exists()
 
 class OnboardRequest(BaseModel):
     goals: list[str]
@@ -181,14 +176,6 @@ async def upload_reel(title: str, file: UploadFile = File(...)):
     file_size = len(file_content)
     object_key = f"reels/{uuid.uuid4()}_{file.filename}"
     
-    # 2. upload to MinIO
-    minio_client.put_object(
-        os.getenv("MINIO_BUCKET"),
-        object_key,
-        io.BytesIO(file_content), # MinIO expects stream for file uploads, so we wrap bytes in BytesIO
-        length=file_size,
-        content_type=file.content_type
-    )
     # 3. save to /tmp/ for Celery processing
     file_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
     with open(file_path, "wb") as buffer:  # wb as we are writing non text data (binary mode)
@@ -230,17 +217,7 @@ async def get_reel_url(reel_id: str):
         if not object_key:
             raise HTTPException(status_code=404, detail="No file uploaded for this reel")
     
-    # generate using internal client (minio:9000)
-    url = minio_client.presigned_get_object(
-        os.getenv("MINIO_BUCKET"),
-        object_key,
-        expires=timedelta(hours=1)
-    )
-    
-    # replace internal hostname with localhost for browser access
-    url = url.replace("http://minio:9000", "http://localhost:9000")
-
-    
+    url = get_file_url(object_key)
     return {"url": url, "expires_in": "1 hour"}
 
 class TaskRequest(BaseModel):
