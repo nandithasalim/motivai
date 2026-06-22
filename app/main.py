@@ -22,9 +22,20 @@ import numpy as np
 
 # then load_dotenv
 load_dotenv()
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # then app setup
 app = FastAPI()
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all for now
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(GuardrailMiddleware)
 # add MinIO client below your other clients
 
