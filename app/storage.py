@@ -38,15 +38,19 @@ def get_boto3_client():
         )
 
 def ensure_bucket_exists():
-    if STORAGE_PROVIDER == "minio":
-        if not minio_client.bucket_exists(BUCKET_NAME):
-            minio_client.make_bucket(BUCKET_NAME)
-    else:
-        s3 = get_boto3_client()
-        try:
-            s3.head_bucket(Bucket=BUCKET_NAME)
-        except Exception:
-            s3.create_bucket(Bucket=BUCKET_NAME)
+    try:
+        if STORAGE_PROVIDER == "minio":
+            if not minio_client.bucket_exists(BUCKET_NAME):
+                minio_client.make_bucket(BUCKET_NAME)
+        else:
+            s3 = get_boto3_client()
+            try:
+                s3.head_bucket(Bucket=BUCKET_NAME)
+            except Exception:
+                s3.create_bucket(Bucket=BUCKET_NAME)
+    except Exception as e:
+        print(f"Warning: Could not connect to storage — {e}")
+        print("Storage will be unavailable until MinIO/S3 is configured")
 
 def upload_file(file_content: bytes, object_key: str, content_type: str) -> str:
     if STORAGE_PROVIDER == "minio":
