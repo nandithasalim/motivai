@@ -27,7 +27,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # then app setup
 app = FastAPI()
-from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
