@@ -26,7 +26,6 @@ from sqlalchemy.pool import NullPool
 engine = create_engine(
     os.getenv("DATABASE_URL"),
     poolclass=NullPool,
-    connect_args={"sslmode": "require"}
 )
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 

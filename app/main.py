@@ -46,7 +46,7 @@ from sqlalchemy.pool import NullPool
 engine = create_engine(
     os.getenv("DATABASE_URL"),
     poolclass=NullPool,
-    connect_args={"sslmode": "require"}
+    
 )
 
 @app.on_event("startup")
