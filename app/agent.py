@@ -21,11 +21,14 @@ langfuse = Langfuse(
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-engine = create_engine(os.getenv("DATABASE_URL")
-    pool_pre_ping=True,        # test connection before using
-    pool_recycle=300,          # recycle connections every 5 min
+engine = create_engine(
+    os.getenv("DATABASE_URL"),
+    pool_pre_ping=True,
+    pool_recycle=300,
     pool_size=5,
-    max_overflow=10,)
+    max_overflow=10,
+    connect_args={"sslmode": "require"}
+)
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 
 SEMANTIC_CACHE_THRESHOLD = 0.15
