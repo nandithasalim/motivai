@@ -44,9 +44,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from sqlalchemy.pool import NullPool
 
 engine = create_engine(
-    os.getenv("DATABASE_URL"),
-    poolclass=NullPool,
-    
+    os.getenv("DATABASE_URL")
 )
 
 @app.on_event("startup")
