@@ -404,7 +404,7 @@ def match_groups(user_id: str):
                 text("""
                     SELECT id, name, description
                     FROM groups
-                    WHERE embedding <=> :embedding < 1.0
+                    WHERE embedding <=> :embedding < 0.8
                     ORDER BY embedding <=> :embedding
                     LIMIT 3
                 """),
