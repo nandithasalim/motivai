@@ -5,7 +5,7 @@ import os
 import time
 import sys
 sys.path.insert(0, '/app')
-from metrics import agent_latency, llm_calls_total
+from metrics import agent_latency
 from agent import motivai_agent
 load_dotenv()
 
@@ -82,7 +82,7 @@ def process_stream():
                     })
                     print(f"Agent reaction: {result['reaction']}")
                     agent_latency.observe(time.time() - start)
-                    llm_calls_total.labels(model="gpt-4o-mini", feature="agent").inc()
+            
                     # acknowledge message
                     redis_client.xack("task_completed", "agent-workers", message_id)
                     print(f"Message {message_id} acknowledged")
