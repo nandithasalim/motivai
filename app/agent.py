@@ -103,6 +103,7 @@ class AgentState(TypedDict):
     description: str
     past_tasks: list
     reaction: object
+    group_id: str
 
 class ToneEnum(str, Enum):
     motivational = "motivational"
@@ -227,28 +228,49 @@ def generate_reaction(state: AgentState) -> AgentState:
 
 def store_reaction(state: AgentState) -> AgentState:
     with engine.connect() as conn:
-        # get all groups user belongs to
-        groups = conn.execute(
-            text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
-            {"user_id": state["user_id"]}
-        ).fetchall()
+        specific_group_id = state.get("group_id", "")
         
-        # store reaction in each group's feed
+        if specific_group_id:
+            # only post to specific group
+            groups = [(specific_group_id,)]
+        else:
+            # post to all groups user belongs to
+            groups = conn.execute(
+                text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
+                {"user_id": state["user_id"]}
+            ).fetchall()
+        
         for group in groups:
-            conn.execute(
+            # check if already posted this task to this group
+            existing = conn.execute(
                 text("""
-                    INSERT INTO group_posts 
-                    (group_id, user_id, completed_tasks, uncompleted_tasks, agent_reaction)
-                    VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, :reaction)
+                    SELECT id FROM group_posts 
+                    WHERE group_id = :group_id 
+                    AND user_id = :user_id
+                    AND completed_tasks @> ARRAY[:task_desc]::text[]
                 """),
                 {
                     "group_id": str(group[0]),
                     "user_id": state["user_id"],
-                    "completed_tasks": [state["description"]],
-                    "uncompleted_tasks": [],
-                    "reaction": state["reaction"].message
+                    "task_desc": state["description"]
                 }
-            )
+            ).fetchone()
+            
+            if not existing:
+                conn.execute(
+                    text("""
+                        INSERT INTO group_posts 
+                        (group_id, user_id, completed_tasks, uncompleted_tasks, agent_reaction)
+                        VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, :reaction)
+                    """),
+                    {
+                        "group_id": str(group[0]),
+                        "user_id": state["user_id"],
+                        "completed_tasks": [state["description"]],
+                        "uncompleted_tasks": [],
+                        "reaction": state["reaction"].message
+                    }
+                )
         conn.commit()
     
     return state

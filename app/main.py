@@ -311,7 +311,7 @@ async def get_agent_context(request: AgentContextRequest):
     
 
 @app.patch("/v1/tasks/{task_id}/complete")
-async def complete_task(task_id: str, user_id: str):
+async def complete_task(task_id: str, user_id: str,  group_id: str = None):
     with engine.connect() as conn:
         # get task description
         task = conn.execute(
@@ -334,6 +334,7 @@ async def complete_task(task_id: str, user_id: str):
         "user_id": user_id,
         "task_id": task_id,
         "description": task[0],
+        "group_id": group_id or "",
         "timestamp": str(datetime.now())
     })
     

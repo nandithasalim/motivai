@@ -78,6 +78,7 @@ def process_stream():
                         "task_id": task_id,
                         "description": description,
                         "past_tasks": [],
+                        "group_id": message_data.get(b"group_id", b"").decode("utf-8"),
                         "reaction": ""
                     })
                     print(f"Agent reaction: {result['reaction']}")
