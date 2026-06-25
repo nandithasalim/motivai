@@ -455,26 +455,28 @@ async def get_group_feed(group_id: str):
     with engine.connect() as conn:
         posts = conn.execute(
             text("""
-                SELECT user_id, completed_tasks, uncompleted_tasks, 
-                       agent_reaction, post_date, created_at
-                FROM group_posts
-                WHERE group_id = :group_id
-                ORDER BY created_at DESC
+                SELECT gp.id, gp.user_id, u.name, gp.completed_tasks, 
+                       gp.uncompleted_tasks, gp.agent_reaction, gp.created_at
+                FROM group_posts gp
+                JOIN users u ON gp.user_id = u.id
+                WHERE gp.group_id = :group_id
+                ORDER BY gp.created_at ASC
             """),
             {"group_id": group_id}
         ).fetchall()
         
-        return [
+        return {"posts": [
             {
-                "user_id": str(row[0]),
-                "completed_tasks": row[1],
-                "uncompleted_tasks": row[2],
-                "agent_reaction": row[3],
-                "post_date": str(row[4]),
-                "created_at": str(row[5])
+                "id": str(row[0]),
+                "user_id": str(row[1]),
+                "user_name": row[2],
+                "completed_tasks": row[3],
+                "uncompleted_tasks": row[4],
+                "agent_reaction": row[5],
+                "created_at": str(row[6])
             }
             for row in posts
-        ]
+        ]}
 
 @app.get("/metrics")
 async def metrics():
@@ -484,3 +486,21 @@ async def metrics():
     )
 
 
+@app.post("/v1/groups/{group_id}/post")
+async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str], uncompleted_tasks: list[str] = []):
+    with engine.connect() as conn:
+        post_id = conn.execute(
+            text("""
+                INSERT INTO group_posts (group_id, user_id, completed_tasks, uncompleted_tasks, post_date)
+                VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, CURRENT_DATE)
+                RETURNING id
+            """),
+            {
+                "group_id": group_id,
+                "user_id": user_id,
+                "completed_tasks": completed_tasks,
+                "uncompleted_tasks": uncompleted_tasks
+            }
+        ).fetchone()[0]
+        conn.commit()
+        return {"post_id": str(post_id)}
