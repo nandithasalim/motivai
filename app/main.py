@@ -52,6 +52,7 @@ async def startup():
     ensure_bucket_exists()
 
 class OnboardRequest(BaseModel):
+    name: str
     goals: list[str]
 @app.post("/v1/goals_embedding")
 async def onboard(request: OnboardRequest):
@@ -71,10 +72,13 @@ async def onboard(request: OnboardRequest):
     
     with engine.connect() as conn:
         result = conn.execute(
-            text("INSERT INTO users (goal_embedding,goals) VALUES (:embedding,:goals) RETURNING id"),
-            {"embedding": str(averaged),
-             "goals": request.goals}
-        )
+    text("INSERT INTO users (name, goal_embedding, goals) VALUES (:name, :embedding, :goals) RETURNING id"),
+    {
+        "name": request.name,
+        "embedding": str(averaged),
+        "goals": request.goals
+    }
+)
         conn.commit()
         user_id = result.fetchone()[0]
     return {"user_id": str(user_id)}
