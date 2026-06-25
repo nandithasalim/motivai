@@ -528,3 +528,20 @@ async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str],
         ).fetchone()[0]
         conn.commit()
         return {"post_id": str(post_id)}
+    
+@app.get("/v1/groups/all")
+async def get_all_groups():
+    for attempt in range(3):
+        try:
+            with engine.connect() as conn:
+                groups = conn.execute(
+                    text("SELECT id, name, description FROM groups ORDER BY created_at DESC")
+                ).fetchall()
+                return {"groups": [
+                    {"id": str(g[0]), "name": g[1], "description": g[2]}
+                    for g in groups
+                ]}
+        except Exception as e:
+            if attempt == 2:
+                raise
+            engine.dispose()
