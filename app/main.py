@@ -452,18 +452,38 @@ def get_group_members(group_id: str):
       
 @app.get("/v1/groups/{group_id}/feed")
 async def get_group_feed(group_id: str):
-    with engine.connect() as conn:
-        posts = conn.execute(
-            text("""
-                SELECT gp.id, gp.user_id, u.name, gp.completed_tasks, 
-                       gp.uncompleted_tasks, gp.agent_reaction, gp.created_at
-                FROM group_posts gp
-                JOIN users u ON gp.user_id = u.id
-                WHERE gp.group_id = :group_id
-                ORDER BY gp.created_at ASC
-            """),
-            {"group_id": group_id}
-        ).fetchall()
+    for attempt in range(3):
+        try:
+            with engine.connect() as conn:
+                posts = conn.execute(
+                    text("""
+                        SELECT gp.id, gp.user_id, u.name, gp.completed_tasks, 
+                               gp.uncompleted_tasks, gp.agent_reaction, gp.created_at
+                        FROM group_posts gp
+                        JOIN users u ON gp.user_id = u.id
+                        WHERE gp.group_id = :group_id
+                        ORDER BY gp.created_at ASC
+                    """),
+                    {"group_id": group_id}
+                ).fetchall()
+                
+                return {"posts": [
+                    {
+                        "id": str(row[0]),
+                        "user_id": str(row[1]),
+                        "user_name": row[2],
+                        "completed_tasks": row[3],
+                        "uncompleted_tasks": row[4],
+                        "agent_reaction": row[5],
+                        "created_at": str(row[6])
+                    }
+                    for row in posts
+                ]}
+        except Exception as e:
+            if attempt == 2:
+                raise
+            engine.dispose()
+            continue
         
         return {"posts": [
             {
