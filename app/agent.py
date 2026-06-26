@@ -231,48 +231,47 @@ def store_reaction(state: AgentState) -> AgentState:
         specific_group_id = state.get("group_id", "")
         
         if specific_group_id:
-            # only post to specific group
-            groups = [(specific_group_id,)]
+            # update existing post with agent reaction
+            conn.execute(
+                text("""
+                    UPDATE group_posts 
+                    SET agent_reaction = :reaction
+                    WHERE group_id = :group_id 
+                    AND user_id = :user_id
+                    AND agent_reaction IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """),
+                {
+                    "reaction": state["reaction"].message,
+                    "group_id": specific_group_id,
+                    "user_id": state["user_id"]
+                }
+            )
         else:
-            # post to all groups user belongs to
+            # fallback — insert new post
             groups = conn.execute(
                 text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
                 {"user_id": state["user_id"]}
             ).fetchall()
-        
-        for group in groups:
-            # check if already posted this task to this group
-            existing = conn.execute(
-                text("""
-                    SELECT id FROM group_posts 
-                    WHERE group_id = :group_id 
-                    AND user_id = :user_id
-                    AND completed_tasks @> ARRAY[:task_desc]::text[]
-                """),
-                {
-                    "group_id": str(group[0]),
-                    "user_id": state["user_id"],
-                    "task_desc": state["description"]
-                }
-            ).fetchone()
-            
-            if not existing:
+            for group in groups:
                 conn.execute(
                     text("""
-                        INSERT INTO group_posts 
-                        (group_id, user_id, completed_tasks, uncompleted_tasks, agent_reaction)
-                        VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, :reaction)
+                        UPDATE group_posts 
+                        SET agent_reaction = :reaction
+                        WHERE group_id = :group_id 
+                        AND user_id = :user_id
+                        AND agent_reaction IS NULL
+                        ORDER BY created_at DESC
+                        LIMIT 1
                     """),
                     {
+                        "reaction": state["reaction"].message,
                         "group_id": str(group[0]),
-                        "user_id": state["user_id"],
-                        "completed_tasks": [state["description"]],
-                        "uncompleted_tasks": [],
-                        "reaction": state["reaction"].message
+                        "user_id": state["user_id"]
                     }
                 )
         conn.commit()
-    
     return state
 
 def build_agent():
