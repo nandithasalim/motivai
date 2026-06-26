@@ -528,8 +528,18 @@ async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str],
             }
         ).fetchone()[0]
         conn.commit()
-        return {"post_id": str(post_id)}
-    
+
+    # trigger agent ONCE for all tasks combined
+    redis_client.xadd("task_completed", {
+        "user_id": user_id,
+        "task_id": str(post_id),
+        "description": ", ".join(completed_tasks),
+        "group_id": group_id,
+        "timestamp": str(datetime.now())
+    })
+
+    return {"post_id": str(post_id)}
+
 @app.get("/v1/groups/all")
 async def get_all_groups():
     for attempt in range(3):
