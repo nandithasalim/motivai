@@ -231,16 +231,18 @@ def store_reaction(state: AgentState) -> AgentState:
         specific_group_id = state.get("group_id", "")
         
         if specific_group_id:
-            # update existing post with agent reaction
             conn.execute(
                 text("""
                     UPDATE group_posts 
                     SET agent_reaction = :reaction
-                    WHERE group_id = :group_id 
-                    AND user_id = :user_id
-                    AND agent_reaction IS NULL
-                    ORDER BY created_at DESC
-                    LIMIT 1
+                    WHERE id = (
+                        SELECT id FROM group_posts
+                        WHERE group_id = :group_id 
+                        AND user_id = :user_id
+                        AND agent_reaction IS NULL
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
                 """),
                 {
                     "reaction": state["reaction"].message,
@@ -249,7 +251,6 @@ def store_reaction(state: AgentState) -> AgentState:
                 }
             )
         else:
-            # fallback — insert new post
             groups = conn.execute(
                 text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
                 {"user_id": state["user_id"]}
@@ -259,11 +260,14 @@ def store_reaction(state: AgentState) -> AgentState:
                     text("""
                         UPDATE group_posts 
                         SET agent_reaction = :reaction
-                        WHERE group_id = :group_id 
-                        AND user_id = :user_id
-                        AND agent_reaction IS NULL
-                        ORDER BY created_at DESC
-                        LIMIT 1
+                        WHERE id = (
+                            SELECT id FROM group_posts
+                            WHERE group_id = :group_id 
+                            AND user_id = :user_id
+                            AND agent_reaction IS NULL
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        )
                     """),
                     {
                         "reaction": state["reaction"].message,
