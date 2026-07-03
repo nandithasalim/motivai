@@ -19,12 +19,12 @@ celery_app = Celery(
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 
-STREAM = "task_completed"
-GROUP = "agent-workers"
-WORKER_ID = f"worker-{os.getenv('RAILWAY_REPLICA_ID', '1')}"
-DLQ = "task_failed"
-MAX_RETRIES = 3
-CLAIM_IDLE_MS = 60000
+STREAM = "task_completed"   # main Redis stream — tasks arrive here
+GROUP = "agent-workers"     # consumer group name
+WORKER_ID = f"worker-{os.getenv('RAILWAY_REPLICA_ID', '1')}"  # unique per Railway instance
+DLQ = "task_failed"         # dead letter queue — failed messages go here
+MAX_RETRIES = 3             # max attempts before sending to DLQ
+CLAIM_IDLE_MS = 60000       #
 
 
 def create_consumer_group():
@@ -36,12 +36,22 @@ def create_consumer_group():
 
 
 def claim_stuck_messages():
+    """
+    Runs every 60 seconds.
+    Finds messages that are pending too long — worker probably crashed.
+    Either retries them (XCLAIM) or gives up and sends to DLQ.
+    """
     try:
-        pending = redis_client.xpending_range(STREAM, GROUP, "-", "+", count=10)
+        pending = redis_client.xpending_range(
+            STREAM, GROUP,
+            "-", "+", # from start to end of stream
+            count=10
+            )
+        
         for msg in pending:
             message_id = msg["message_id"]
-            idle_ms = msg["time_since_delivered"]
-            delivery_count = msg["times_delivered"]
+            idle_ms = msg["time_since_delivered"]  # how long it's been stuck
+            delivery_count = msg["times_delivered"] # how many times attempted
 
             if idle_ms > CLAIM_IDLE_MS:
                 if delivery_count >= MAX_RETRIES:
@@ -51,10 +61,12 @@ def claim_stuck_messages():
                         "delivery_count": str(delivery_count),
                         "reason": "max retries exceeded"
                     })
+                    # remove from pending so it doesn't block the queue
                     redis_client.xack(STREAM, GROUP, message_id)
                 else:
                     print(f"Claiming stuck message {message_id}")
                     redis_client.xclaim(STREAM, GROUP, WORKER_ID, CLAIM_IDLE_MS, [message_id])
+
     except Exception as e:
         print(f"XCLAIM error: {e}")
 
@@ -77,7 +89,7 @@ def process_stream():
             messages = redis_client.xreadgroup(
                 GROUP, WORKER_ID,
                 {STREAM: ">"},
-                count=1,
+                count=1,  # read one message at a time
                 block=2000
             )
         except Exception as e:
@@ -89,8 +101,8 @@ def process_stream():
             continue
 
         # extract message
-        message_id = messages[0][1][0][0]
-        message_data = messages[0][1][0][1]
+        stream_name, stream_messages = messages[0]
+        message_id, message_data = stream_messages[0]
 
         user_id = message_data.get(b"user_id", b"").decode()
         task_id = message_data.get(b"task_id", b"").decode()
@@ -102,6 +114,7 @@ def process_stream():
         acquired = redis_client.set(idempotency_key, "1", ex=86400, nx=True)
 
         if not acquired:
+        # key already exists → already processed → skip
             print(f"Task {task_id} already processed — skipping")
             redis_client.xack(STREAM, GROUP, message_id)
             continue
