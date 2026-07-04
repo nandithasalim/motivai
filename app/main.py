@@ -7,6 +7,8 @@ import time
 from datetime import timedelta, datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
+from fastapi.responses import StreamingResponse
+import asyncio
 from openai import OpenAI
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
@@ -457,6 +459,13 @@ def get_group_members(group_id: str):
       
 @app.get("/v1/groups/{group_id}/feed")
 async def get_group_feed(group_id: str):
+    # check cache first
+    cache_key = f"group_feed:{group_id}"
+    cached = redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    
+    # cache miss — fetch from DB
     for attempt in range(3):
         try:
             with engine.connect() as conn:
@@ -472,7 +481,7 @@ async def get_group_feed(group_id: str):
                     {"group_id": group_id}
                 ).fetchall()
                 
-                return {"posts": [
+                result = {"posts": [
                     {
                         "id": str(row[0]),
                         "user_id": str(row[1]),
@@ -484,24 +493,16 @@ async def get_group_feed(group_id: str):
                     }
                     for row in posts
                 ]}
+                
+                # store in cache until new post arrives (24 hours max)
+                redis_client.setex(cache_key, 86400, json.dumps(result))
+                
+                return result
         except Exception as e:
             if attempt == 2:
                 raise
             engine.dispose()
             continue
-        
-        return {"posts": [
-            {
-                "id": str(row[0]),
-                "user_id": str(row[1]),
-                "user_name": row[2],
-                "completed_tasks": row[3],
-                "uncompleted_tasks": row[4],
-                "agent_reaction": row[5],
-                "created_at": str(row[6])
-            }
-            for row in posts
-        ]}
 
 @app.get("/metrics")
 async def metrics():
@@ -537,7 +538,7 @@ async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str],
         "group_id": group_id,
         "timestamp": str(datetime.now())
     })
-
+    redis_client.delete(f"group_feed:{group_id}")
     return {"post_id": str(post_id)}
 
 @app.get("/v1/groups/all")
@@ -556,3 +557,42 @@ async def get_all_groups():
             if attempt == 2:
                 raise
             engine.dispose()
+
+@app.get("/v1/groups/{group_id}/stream")
+async def group_stream(group_id: str):
+    """
+    SSE endpoint — client connects once, server pushes signal when new post arrives.
+    Frontend then calls /feed to get actual data.
+    """
+    async def event_generator():
+        # track post count to detect new posts
+        last_count = 0
+        
+        while True:
+            try:
+                # check if new posts in DB
+                with engine.connect() as conn:
+                    count = conn.execute(
+                        text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
+                        {"group_id": group_id}
+                    ).fetchone()[0]
+                
+                if count > last_count:
+                    last_count = count
+                    # signal frontend — new post arrived
+                    yield f"data: new_post\n\n"
+                
+            except Exception as e:
+                print(f"SSE error: {e}")
+            
+            # check every 3 seconds
+            await asyncio.sleep(3)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no" 
+        }
+    )
