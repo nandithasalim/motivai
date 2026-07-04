@@ -276,6 +276,7 @@ def store_reaction(state: AgentState) -> AgentState:
                     }
                 )
         conn.commit()
+    redis_client.delete(f"group_feed:{specific_group_id}")
     return state
 
 def build_agent():

@@ -566,20 +566,26 @@ async def group_stream(group_id: str):
     """
     async def event_generator():
         # track post count to detect new posts
-        last_count = 0
+        last_posts = 0
+        last_reactions = 0
         
         while True:
             try:
                 # check if new posts in DB
                 with engine.connect() as conn:
-                    count = conn.execute(
-                        text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
-                        {"group_id": group_id}
+                    new_posts = conn.execute(
+                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
+                    {"group_id": group_id}
+                    ).fetchone()[0]
+            
+                    new_reactions = conn.execute(
+                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
+                    {"group_id": group_id}
                     ).fetchone()[0]
                 
-                if count > last_count:
-                    last_count = count
-                    # signal frontend — new post arrived
+                if new_posts > last_posts or new_reactions > last_reactions:
+                    last_posts = new_posts
+                    last_reactions = new_reactions
                     yield f"data: new_post\n\n"
                 
             except Exception as e:
