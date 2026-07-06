@@ -3,7 +3,7 @@
 TikTok-style motivational reels personalized by your goals. AI agent reacts when you complete tasks — grounded in your actual history, not generic praise.
 
 ## Live URL
-https://motivai-ecjl.onrender.com
+https://motivai-frontend.vercel.app/
 
 ## Stack
 FastAPI · pgvector · Redis · Celery · MinIO · LangGraph · OpenAI · Docker · Render
