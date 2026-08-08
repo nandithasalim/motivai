@@ -1,6 +1,6 @@
 # MotivAI
 
-TikTok-style motivational reels personalized by your goals. AI agent reacts when you complete tasks — grounded in your actual history, not generic praise.
+An AI-powered habit-building app where users choose goal-based groups, complete tasks, and get contextual reactions from an AI agent based on what they're actually accomplishing. It also curates goal-oriented short-form content, turning the app into a combination of habit tracking, accountability, and personalized motivation.
 
 ## Live URL
 https://motivai-frontend.vercel.app/
