@@ -57,7 +57,9 @@ CREATE TABLE group_posts (
     uncompleted_tasks TEXT[],   
     agent_reaction TEXT,       
     post_date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_task_ids UUID[] DEFAULT '{}',
+    uncompleted_task_ids UUID[] DEFAULT '{}',
 );
 
 CREATE TABLE evals (

@@ -105,17 +105,21 @@ def process_stream():
         message_id, message_data = stream_messages[0]
 
         user_id = message_data.get(b"user_id", b"").decode()
-        task_id = message_data.get(b"task_id", b"").decode()
+        post_id = message_data.get(b"post_id", b"").decode()
         description = message_data.get(b"description", b"").decode()
         group_id = message_data.get(b"group_id", b"").decode()
-
+        
+        if not post_id:                                               # new: drop old-format leftover
+            print(f"Message {message_id} has no post_id — dropping")
+            redis_client.xack(STREAM, GROUP, message_id)
+            continue
         # idempotency check
-        idempotency_key = f"task:processed:{task_id}"
+        idempotency_key = f"task:processed:{post_id}"
         acquired = redis_client.set(idempotency_key, "1", ex=86400, nx=True)
 
         if not acquired:
         # key already exists → already processed → skip
-            print(f"Task {task_id} already processed — skipping")
+            print(f"Task {post_id} already processed — skipping")
             redis_client.xack(STREAM, GROUP, message_id)
             continue
 
@@ -126,7 +130,7 @@ def process_stream():
         try:
             result = motivai_agent.invoke({
                 "user_id": user_id,
-                "task_id": task_id,
+                "post_id": post_id,
                 "description": description,
                 "past_tasks": [],
                 "group_id": group_id,
@@ -141,9 +145,9 @@ def process_stream():
 
         except Exception as e:
             # agent crashed — delete key so retry can process
-            print(f"Agent failed for task {task_id}: {e}")
+            print(f"Agent failed for task {post_id}: {e}")
             redis_client.delete(idempotency_key)
-            print(f"Task {task_id} left in pending for retry")
+            print(f"Task {post_id} left in pending for retry")
 
 
 if __name__ == "__main__":

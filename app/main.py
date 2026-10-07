@@ -313,34 +313,21 @@ async def get_agent_context(request: AgentContextRequest):
     
 
 @app.patch("/v1/tasks/{task_id}/complete")
-async def complete_task(task_id: str, user_id: str,  group_id: str = None):
+async def complete_task(task_id: str, user_id: str, completed: bool = True):
     with engine.connect() as conn:
-        # get task description
-        task = conn.execute(
-            text("SELECT description FROM tasks WHERE id = :task_id"),
-            {"task_id": task_id}
+        updated = conn.execute(
+            text("""
+                UPDATE tasks SET completed = :completed
+                WHERE id = :task_id AND user_id = :user_id
+                RETURNING id
+            """),
+            {"completed": completed, "task_id": task_id, "user_id": user_id}
         ).fetchone()
-        
-        if not task:
+        if not updated:
             raise HTTPException(status_code=404, detail="Task not found")
-        
-        # mark complete in DB
-        conn.execute(
-            text("UPDATE tasks SET completed = TRUE WHERE id = :task_id"),
-            {"task_id": task_id}
-        )
         conn.commit()
-    
-    # fire Redis Stream event
-    redis_client.xadd("task_completed", {
-        "user_id": user_id,
-        "task_id": task_id,
-        "description": task[0],
-        "group_id": group_id or "",
-        "timestamp": str(datetime.now())
-    })
-    
-    return {"status": "completed"}
+    return {"status": "completed" if completed else "pending"}
+
 
 @app.get("/v1/tasks/{user_id}")
 async def get_tasks(user_id: str):
@@ -513,27 +500,38 @@ async def metrics():
 
 
 @app.post("/v1/groups/{group_id}/post")
-async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str], uncompleted_tasks: list[str] = []):
+async def post_to_group(
+    group_id: str, user_id: str,
+    completed_tasks: list[str],
+    uncompleted_tasks: list[str] = [],
+    completed_task_ids: list[uuid.UUID] = [],
+    uncompleted_task_ids: list[uuid.UUID] = [],
+):
     with engine.connect() as conn:
         post_id = conn.execute(
             text("""
-                INSERT INTO group_posts (group_id, user_id, completed_tasks, uncompleted_tasks, post_date)
-                VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, CURRENT_DATE)
+                INSERT INTO group_posts (
+                    group_id, user_id, completed_tasks, uncompleted_tasks,
+                    completed_task_ids, uncompleted_task_ids, post_date)
+                VALUES (
+                    :group_id, :user_id, :completed_tasks, :uncompleted_tasks,
+                    CAST(:completed_task_ids AS uuid[]),
+                    CAST(:uncompleted_task_ids AS uuid[]), CURRENT_DATE)
                 RETURNING id
             """),
             {
-                "group_id": group_id,
-                "user_id": user_id,
+                "group_id": group_id, "user_id": user_id,
                 "completed_tasks": completed_tasks,
-                "uncompleted_tasks": uncompleted_tasks
+                "uncompleted_tasks": uncompleted_tasks,
+                "completed_task_ids": [str(i) for i in completed_task_ids],
+                "uncompleted_task_ids": [str(i) for i in uncompleted_task_ids],
             }
         ).fetchone()[0]
         conn.commit()
 
-    # trigger agent ONCE for all tasks combined
     redis_client.xadd("task_completed", {
         "user_id": user_id,
-        "task_id": str(post_id),
+        "post_id": str(post_id),               # was "task_id"
         "description": ", ".join(completed_tasks),
         "group_id": group_id,
         "timestamp": str(datetime.now())

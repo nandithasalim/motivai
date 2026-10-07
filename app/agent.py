@@ -99,7 +99,7 @@ def call_gpt_with_retry(model: str, messages: list, max_retries: int = 3):
 # state definition
 class AgentState(TypedDict):
     user_id: str
-    task_id: str
+    post_id: str
     description: str
     past_tasks: list
     reaction: object
@@ -132,47 +132,61 @@ class AgentReaction(BaseModel):
             raise ValueError("Only one emoji allowed")
         return v
 
+PAST_PER_TASK = 2   # similar past tasks fetched for each of today's tasks
+
 def retrieve_context(state: AgentState) -> AgentState:
+    state["past_tasks"] = []
     with engine.connect() as conn:
-        task = conn.execute(
-            text("SELECT embedding FROM tasks WHERE id = :task_id"),
-            {"task_id": state["task_id"]}
+        post = conn.execute(
+            text("SELECT completed_task_ids FROM group_posts WHERE id = :post_id"),
+            {"post_id": state["post_id"]}
         ).fetchone()
-        
-        if not task or task[0] is None:
-            state["past_tasks"] = []
+        task_ids = [str(i) for i in (post[0] or [])] if post else []
+        if not task_ids:
             return state
-        
-        current_embedding = task[0]
-        results = conn.execute(
+
+        embeddings = conn.execute(
             text("""
-                SELECT id, description, completed, created_at
-                FROM tasks
-                WHERE user_id = :user_id 
-                AND completed = TRUE
+                SELECT embedding FROM tasks
+                WHERE id = ANY(CAST(:task_ids AS uuid[]))
+                AND user_id = :user_id
                 AND embedding IS NOT NULL
-                AND id != :task_id
-                ORDER BY embedding <=> :embedding
-                LIMIT 5
             """),
-            {
-                "user_id": state["user_id"],
-                "embedding": str(current_embedding),
-                "task_id": state["task_id"]
-            }
+            {"task_ids": task_ids, "user_id": state["user_id"]}
         ).fetchall()
-        
-        state["past_tasks"] = [
-            {
-                "id": str(row[0]),
-                "description": row[1],
-                "completed": row[2],
-                "created_at": str(row[3])
-            }
-            for row in results
-        ]
-    
+
+        past = {}   # past task id -> task. A dict holds each id once, so duplicates disappear.
+        for (embedding,) in embeddings:
+            rows = conn.execute(
+                text("""
+                    SELECT id, description, completed, created_at
+                    FROM tasks
+                    WHERE user_id = :user_id
+                    AND completed = TRUE
+                    AND embedding IS NOT NULL
+                    AND id <> ALL(CAST(:task_ids AS uuid[]))
+                    ORDER BY embedding <=> :embedding
+                    LIMIT :k
+                """),
+                {
+                    "embedding": str(embedding),
+                    "user_id": state["user_id"],
+                    "task_ids": task_ids,
+                    "k": PAST_PER_TASK,
+                }
+            ).fetchall()
+            for row in rows:
+                past[row[0]] = {
+                    "id": str(row[0]),
+                    "description": row[1],
+                    "completed": row[2],
+                    "created_at": str(row[3]),
+                }
+
+        state["past_tasks"] = list(past.values())
+
     return state
+
 @observe(name="generate_reaction",as_type="agent")
 def generate_reaction(state: AgentState) -> AgentState:
     # check semantic cache 
@@ -225,58 +239,14 @@ def generate_reaction(state: AgentState) -> AgentState:
     state["reaction"] = reaction
     return state
 
-
 def store_reaction(state: AgentState) -> AgentState:
     with engine.connect() as conn:
-        specific_group_id = state.get("group_id", "")
-        
-        if specific_group_id:
-            conn.execute(
-                text("""
-                    UPDATE group_posts 
-                    SET agent_reaction = :reaction
-                    WHERE id = (
-                        SELECT id FROM group_posts
-                        WHERE group_id = :group_id 
-                        AND user_id = :user_id
-                        AND agent_reaction IS NULL
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )
-                """),
-                {
-                    "reaction": state["reaction"].message,
-                    "group_id": specific_group_id,
-                    "user_id": state["user_id"]
-                }
-            )
-        else:
-            groups = conn.execute(
-                text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
-                {"user_id": state["user_id"]}
-            ).fetchall()
-            for group in groups:
-                conn.execute(
-                    text("""
-                        UPDATE group_posts 
-                        SET agent_reaction = :reaction
-                        WHERE id = (
-                            SELECT id FROM group_posts
-                            WHERE group_id = :group_id 
-                            AND user_id = :user_id
-                            AND agent_reaction IS NULL
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        )
-                    """),
-                    {
-                        "reaction": state["reaction"].message,
-                        "group_id": str(group[0]),
-                        "user_id": state["user_id"]
-                    }
-                )
+        conn.execute(
+            text("UPDATE group_posts SET agent_reaction = :reaction WHERE id = :post_id"),
+            {"reaction": state["reaction"].message, "post_id": state["post_id"]}
+        )
         conn.commit()
-    redis_client.delete(f"group_feed:{specific_group_id}")
+    redis_client.delete(f"group_feed:{state['group_id']}")
     return state
 
 def build_agent():
