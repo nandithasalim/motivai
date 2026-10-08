@@ -21,7 +21,7 @@ from reels_celery import process_reel
 from storage import upload_file, get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
-
+from zoneinfo import ZoneInfo
 # then load_dotenv
 load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
@@ -499,39 +499,70 @@ async def metrics():
     )
 
 
+# one timezone for the whole app (simplification: per-user timezones can come later)
+APP_TZ = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Kolkata"))
+
 @app.post("/v1/groups/{group_id}/post")
 async def post_to_group(
-    group_id: str, user_id: str,
+    group_id: str,
+    user_id: str,
     completed_tasks: list[str],
     uncompleted_tasks: list[str] = [],
     completed_task_ids: list[uuid.UUID] = [],
     uncompleted_task_ids: list[uuid.UUID] = [],
 ):
+    today = datetime.now(APP_TZ).date()   # the user's day, not the server's (UTC) day
     with engine.connect() as conn:
         post_id = conn.execute(
             text("""
                 INSERT INTO group_posts (
-                    group_id, user_id, completed_tasks, uncompleted_tasks,
-                    completed_task_ids, uncompleted_task_ids, post_date)
+                    group_id, user_id,
+                    completed_tasks, uncompleted_tasks,
+                    completed_task_ids, uncompleted_task_ids,
+                    post_date
+                )
                 VALUES (
-                    :group_id, :user_id, :completed_tasks, :uncompleted_tasks,
+                    :group_id, :user_id,
+                    :completed_tasks, :uncompleted_tasks,
                     CAST(:completed_task_ids AS uuid[]),
-                    CAST(:uncompleted_task_ids AS uuid[]), CURRENT_DATE)
+                    CAST(:uncompleted_task_ids AS uuid[]),
+                    :today
+                )
                 RETURNING id
             """),
             {
-                "group_id": group_id, "user_id": user_id,
+                "group_id": group_id,
+                "user_id": user_id,
                 "completed_tasks": completed_tasks,
                 "uncompleted_tasks": uncompleted_tasks,
                 "completed_task_ids": [str(i) for i in completed_task_ids],
                 "uncompleted_task_ids": [str(i) for i in uncompleted_task_ids],
+                "today": today,
             }
         ).fetchone()[0]
+
+        # streak = days in a row the user sent a post. ONE statement checks and updates,
+        # so simultaneous posts cannot both add 1.
+        conn.execute(
+            text("""
+                UPDATE users SET
+                    streak_count = CASE
+                        WHEN last_post_date = CAST(:today AS date)     THEN streak_count      -- 2nd post today: no change
+                        WHEN last_post_date = CAST(:today AS date) - 1 THEN streak_count + 1  -- posted yesterday: continue
+                        ELSE 1                                                                -- first post, or missed a day
+                    END,
+                    last_post_date = CAST(:today AS date)
+                WHERE id = :user_id
+            """),
+            {"today": today, "user_id": user_id}
+        )
         conn.commit()
 
+    # trigger the agent ONCE for the whole post. It reads the task ids from the
+    # group_posts row, so only the post id travels in the event.
     redis_client.xadd("task_completed", {
         "user_id": user_id,
-        "post_id": str(post_id),               # was "task_id"
+        "post_id": str(post_id),
         "description": ", ".join(completed_tasks),
         "group_id": group_id,
         "timestamp": str(datetime.now())

@@ -10,6 +10,7 @@ from enum import Enum
 import redis
 import numpy as np
 import time
+import hashlib
 from langfuse import Langfuse,observe
 load_dotenv()
 
@@ -47,39 +48,43 @@ def cosine_distance(a, b):
     b = np.array(b)
     return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def get_semantic_cache(description: str):
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=description
-    )
-    embedding = response.data[0].embedding # list of float
-    
-    cached_keys = redis_client.keys("reaction_cache:*") # list of bytes - # → [b"reaction_cache:30min run", b"reaction_cache:HIIT workout"]
-    
-    for key in cached_keys:
-        cached = json.loads(redis_client.get(key)) # {"embedding": [...], "reaction": "Great job!"}
-        dist = cosine_distance(embedding, cached["embedding"])
-        if dist < SEMANTIC_CACHE_THRESHOLD:
-            print(f"Semantic cache hit — distance: {dist:.4f}")
-            return cached["reaction"]
-    
-    return None
+def cache_prefix(user_id: str) -> str:
+    # every user gets their own namespace, so one user never reads another's reactions
+    return f"reaction_cache:{user_id}:"
 
-def set_semantic_cache(description: str, reaction: str):
+def get_semantic_cache(user_id: str, description: str):
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=description
     )
     embedding = response.data[0].embedding
-    key = f"reaction_cache:{description[:50]}"
+
+    # only THIS user's entries: the key starts with their id
+    for key in redis_client.scan_iter(match=f"reaction_cache:{user_id}:*", count=100):
+        raw = redis_client.get(key)
+        if raw is None:          # expired between the scan and the get
+            continue
+        cached = json.loads(raw)
+        dist = cosine_distance(embedding, cached["embedding"])
+        if dist < SEMANTIC_CACHE_THRESHOLD:
+            print(f"Semantic cache hit — distance: {dist:.4f}")
+            return cached["reaction"]
+
+    return None
+
+def set_semantic_cache(user_id: str, description: str, reaction: str):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=description
+    )
+    embedding = response.data[0].embedding
+    key = f"reaction_cache:{user_id}:{description[:50]}"
     redis_client.setex(
         key,
         3600,
-        json.dumps({
-            "embedding": embedding,
-            "reaction": reaction
-        })
+        json.dumps({"embedding": embedding, "reaction": reaction})
     )
+
 def call_gpt_with_retry(model: str, messages: list, max_retries: int = 3): 
     for attempt in range(max_retries):
         try:
@@ -190,7 +195,7 @@ def retrieve_context(state: AgentState) -> AgentState:
 @observe(name="generate_reaction",as_type="agent")
 def generate_reaction(state: AgentState) -> AgentState:
     # check semantic cache 
-    cached = get_semantic_cache(state["description"])
+    cached = get_semantic_cache(state["user_id"], state["description"])
     if cached:
         state["reaction"] = AgentReaction(
             message=cached,
@@ -207,10 +212,12 @@ def generate_reaction(state: AgentState) -> AgentState:
     reaction = None
 
     with engine.connect() as conn:
-        streak_count = conn.execute(
-        text("SELECT COUNT(*) FROM tasks WHERE user_id = :user_id AND completed = TRUE"),
-        {"user_id": state["user_id"]}
-        ).fetchone()[0]
+        # days in a row the user has posted; already includes today's post
+        row = conn.execute(
+            text("SELECT streak_count FROM users WHERE id = :user_id"),
+            {"user_id": state["user_id"]}
+        ).fetchone()
+        streak_count = (row[0] or 0) if row else 0
     primary_model = get_model(streak_count)
 
     FALLBACK_CHAIN = [primary_model, "gpt-4o-mini"] if primary_model == "gpt-4o" else ["gpt-4o-mini", "gpt-4o"]
@@ -235,7 +242,7 @@ def generate_reaction(state: AgentState) -> AgentState:
         tone=ToneEnum.motivational
     )
 
-    set_semantic_cache(state["description"], reaction.message)
+    set_semantic_cache(state["user_id"], state["description"], reaction.message)
     state["reaction"] = reaction
     return state
 

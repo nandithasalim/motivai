@@ -3,6 +3,8 @@ CREATE TABLE users(
     id UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
     goals TEXT[] ,
     goal_embedding vector(1536),
+    streak_count INT DEFAULT 0,
+    last_post_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
