@@ -2,29 +2,28 @@
 import os
 import json
 import uuid
-import io
 import time
-from datetime import timedelta, datetime
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 from openai import OpenAI
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
 from celery.result import AsyncResult
-from minio import Minio
 from middleware import GuardrailMiddleware
 from metrics import requests_total, feed_latency
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from reels_celery import process_reel
-from storage import upload_file, get_file_url, ensure_bucket_exists
+from storage import get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
 from zoneinfo import ZoneInfo
 # then load_dotenv
 load_dotenv()
-from fastapi.middleware.cors import CORSMiddleware
+
 
 
 # then app setup
@@ -43,7 +42,6 @@ app.add_middleware(GuardrailMiddleware)
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-from sqlalchemy.pool import NullPool
 
 engine = create_engine(
     os.getenv("DATABASE_URL")
@@ -193,7 +191,6 @@ async def get_feed(user_id: str, query: str = ""):
 async def upload_reel(title: str, file: UploadFile = File(...)):
     # 1. read file content
     file_content = await file.read()  # read file as bytes
-    file_size = len(file_content)
     object_key = f"reels/{uuid.uuid4()}_{file.filename}"
     
     # 3. save to /tmp/ for Celery processing
@@ -485,7 +482,7 @@ async def get_group_feed(group_id: str):
                 redis_client.setex(cache_key, 86400, json.dumps(result))
                 
                 return result
-        except Exception as e:
+        except Exception:
             if attempt == 2:
                 raise
             engine.dispose()
@@ -582,7 +579,7 @@ async def get_all_groups():
                     {"id": str(g[0]), "name": g[1], "description": g[2]}
                     for g in groups
                 ]}
-        except Exception as e:
+        except Exception:
             if attempt == 2:
                 raise
             engine.dispose()
@@ -615,7 +612,7 @@ async def group_stream(group_id: str):
                 if new_posts > last_posts or new_reactions > last_reactions:
                     last_posts = new_posts
                     last_reactions = new_reactions
-                    yield f"data: new_post\n\n"
+                    yield "data: new_post\n\n"
                 
             except Exception as e:
                 print(f"SSE error: {e}")

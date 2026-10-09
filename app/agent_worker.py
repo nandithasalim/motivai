@@ -31,7 +31,7 @@ def create_consumer_group():
     try:
         redis_client.xgroup_create(STREAM, GROUP, id="0", mkstream=True)
         print("Consumer group created")
-    except:
+    except Exception:
         print("Consumer group already exists")
 
 

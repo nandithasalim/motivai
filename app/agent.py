@@ -10,7 +10,6 @@ from enum import Enum
 import redis
 import numpy as np
 import time
-import hashlib
 from langfuse import Langfuse,observe
 load_dotenv()
 
@@ -22,7 +21,6 @@ langfuse = Langfuse(
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-from sqlalchemy.pool import NullPool
 
 engine = create_engine(
     os.getenv("DATABASE_URL")
