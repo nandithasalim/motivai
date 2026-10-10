@@ -87,3 +87,9 @@ def get_file_url(object_key: str, expires_hours: int = 1) -> str:
             ExpiresIn=expires_hours * 3600
         )
         return url
+def download_file(object_key: str, dest_path: str) -> None:
+    """Copy an object from storage to a local file (used by the Celery worker)."""
+    if STORAGE_PROVIDER == "minio":
+        minio_client.fget_object(BUCKET_NAME, object_key, dest_path)
+    else:
+        get_boto3_client().download_file(BUCKET_NAME, object_key, dest_path)
