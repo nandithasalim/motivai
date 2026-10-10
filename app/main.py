@@ -84,7 +84,7 @@ async def onboard(request: OnboardRequest):
     return {"user_id": str(user_id)}
 
 @app.get("/v1/feed_return")
-async def get_feed(user_id: str, query: str = ""):
+def get_feed(user_id: str, query: str = ""):
     requests_total.labels(endpoint="feed").inc()
     start = time.time()
     #checks if feed is in redis cache, if yes return, if no compute and store in redis before returning
@@ -188,9 +188,9 @@ async def get_feed(user_id: str, query: str = ""):
     
 
 @app.post("/v1/upload_reel")
-async def upload_reel(title: str, file: UploadFile = File(...)):
+def upload_reel(title: str, file: UploadFile = File(...)):
     # 1. read file content
-    file_content = await file.read()  # read file as bytes
+    file_content = file.file.read()  # read file as bytes (sync: this endpoint runs in a thread) # read file as bytes
     object_key = f"reels/{uuid.uuid4()}_{file.filename}"
     
     # 3. save to /tmp/ for Celery processing
@@ -213,13 +213,13 @@ async def upload_reel(title: str, file: UploadFile = File(...)):
 
 
 @app.get("/v1/celery_status/{task_id}")
-async def get_upload_status(task_id: str):
+def get_upload_status(task_id: str):
     task = AsyncResult(task_id, app=process_reel.app)  #to check status of celery task
     return {"status": task.status}   
 
 
 @app.get("/v1/reels/{reel_id}/play")
-async def get_reel_url(reel_id: str):
+def get_reel_url(reel_id: str):
     with engine.connect() as conn:
         reel = conn.execute(
             text("SELECT object_key FROM reels WHERE id = :reel_id"),
@@ -242,7 +242,7 @@ class TaskRequest(BaseModel):
     description: str
     
 @app.post("/v1/tasks")
-async def create_task(request: TaskRequest):
+def create_task(request: TaskRequest):
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=request.description
@@ -270,7 +270,7 @@ class AgentContextResponse(BaseModel):
     past_tasks: list[TaskContext]
 
 @app.post("/v1/agent/past_tasks")
-async def get_agent_context(request: AgentContextRequest):
+def get_agent_context(request: AgentContextRequest):
     
     with engine.connect() as conn:
         # get embedding of current task
@@ -310,7 +310,7 @@ async def get_agent_context(request: AgentContextRequest):
     
 
 @app.patch("/v1/tasks/{task_id}/complete")
-async def complete_task(task_id: str, user_id: str, completed: bool = True):
+def complete_task(task_id: str, user_id: str, completed: bool = True):
     with engine.connect() as conn:
         updated = conn.execute(
             text("""
@@ -327,7 +327,7 @@ async def complete_task(task_id: str, user_id: str, completed: bool = True):
 
 
 @app.get("/v1/tasks/{user_id}")
-async def get_tasks(user_id: str):
+def get_tasks(user_id: str):
     with engine.connect() as conn:
         tasks = conn.execute(
             text("SELECT id, description, completed, created_at FROM tasks WHERE user_id = :user_id"),
@@ -411,7 +411,7 @@ def match_groups(user_id: str):
 
 
 @app.post("/v1/groups/{group_id}/join")
-async def join_group(group_id: str, user_id: str):
+def join_group(group_id: str, user_id: str):
     with engine.connect() as conn:
         conn.execute(
         text("INSERT INTO group_members (group_id, user_id) VALUES (:group_id, :user_id)"),
@@ -442,7 +442,7 @@ def get_group_members(group_id: str):
 ]
       
 @app.get("/v1/groups/{group_id}/feed")
-async def get_group_feed(group_id: str):
+def get_group_feed(group_id: str):
     # check cache first
     cache_key = f"group_feed:{group_id}"
     cached = redis_client.get(cache_key)
@@ -500,7 +500,7 @@ async def metrics():
 APP_TZ = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Kolkata"))
 
 @app.post("/v1/groups/{group_id}/post")
-async def post_to_group(
+def post_to_group(
     group_id: str,
     user_id: str,
     completed_tasks: list[str],
@@ -568,7 +568,7 @@ async def post_to_group(
     return {"post_id": str(post_id)}
 
 @app.get("/v1/groups/all")
-async def get_all_groups():
+def get_all_groups():
     for attempt in range(3):
         try:
             with engine.connect() as conn:
@@ -590,41 +590,42 @@ async def group_stream(group_id: str):
     SSE endpoint — client connects once, server pushes signal when new post arrives.
     Frontend then calls /feed to get actual data.
     """
+    def read_counts():
+        # blocking DB work: runs in a worker thread, never on the event loop
+        with engine.connect() as conn:
+            posts = conn.execute(
+                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
+                {"group_id": group_id}
+            ).fetchone()[0]
+            reactions = conn.execute(
+                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
+                {"group_id": group_id}
+            ).fetchone()[0]
+        return posts, reactions
+
     async def event_generator():
-        # track post count to detect new posts
         last_posts = 0
         last_reactions = 0
-        
+
         while True:
             try:
-                # check if new posts in DB
-                with engine.connect() as conn:
-                    new_posts = conn.execute(
-                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
-                    {"group_id": group_id}
-                    ).fetchone()[0]
-            
-                    new_reactions = conn.execute(
-                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
-                    {"group_id": group_id}
-                    ).fetchone()[0]
-                
+                new_posts, new_reactions = await asyncio.to_thread(read_counts)
+
                 if new_posts > last_posts or new_reactions > last_reactions:
                     last_posts = new_posts
                     last_reactions = new_reactions
                     yield "data: new_post\n\n"
-                
+
             except Exception as e:
                 print(f"SSE error: {e}")
-            
-            # check every 3 seconds
+
             await asyncio.sleep(3)
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no" 
+            "X-Accel-Buffering": "no"
         }
     )
