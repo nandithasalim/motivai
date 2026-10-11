@@ -88,7 +88,7 @@ def get_feed(user_id: str, query: str = ""):
     requests_total.labels(endpoint="feed").inc()
     start = time.time()
     #checks if feed is in redis cache, if yes return, if no compute and store in redis before returning
-    cache_key = f"feed:{user_id}"  #redis reads only strings
+    cache_key = f"feed:{user_id}:{query.strip().lower()}"  #redis reads only strings
     cached= redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
