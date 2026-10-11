@@ -3,6 +3,8 @@ CREATE TABLE users(
     id UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
     goals TEXT[] ,
     goal_embedding vector(1536),
+    streak_count INT DEFAULT 0,
+    last_post_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -57,7 +59,9 @@ CREATE TABLE group_posts (
     uncompleted_tasks TEXT[],   
     agent_reaction TEXT,       
     post_date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_task_ids UUID[] DEFAULT '{}',
+    uncompleted_task_ids UUID[] DEFAULT '{}',
 );
 
 CREATE TABLE evals (

@@ -2,29 +2,28 @@
 import os
 import json
 import uuid
-import io
 import time
-from datetime import timedelta, datetime
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 from openai import OpenAI
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
 from celery.result import AsyncResult
-from minio import Minio
 from middleware import GuardrailMiddleware
 from metrics import requests_total, feed_latency
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from reels_celery import process_reel
-from storage import upload_file, get_file_url, ensure_bucket_exists
+from storage import get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
-
+from zoneinfo import ZoneInfo
 # then load_dotenv
 load_dotenv()
-from fastapi.middleware.cors import CORSMiddleware
+
 
 
 # then app setup
@@ -43,7 +42,6 @@ app.add_middleware(GuardrailMiddleware)
 
 redis_client = redis.from_url(os.getenv("REDIS_URL"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-from sqlalchemy.pool import NullPool
 
 engine = create_engine(
     os.getenv("DATABASE_URL")
@@ -86,11 +84,11 @@ async def onboard(request: OnboardRequest):
     return {"user_id": str(user_id)}
 
 @app.get("/v1/feed_return")
-async def get_feed(user_id: str, query: str = ""):
+def get_feed(user_id: str, query: str = ""):
     requests_total.labels(endpoint="feed").inc()
     start = time.time()
     #checks if feed is in redis cache, if yes return, if no compute and store in redis before returning
-    cache_key = f"feed:{user_id}"  #redis reads only strings
+    cache_key = f"feed:{user_id}:{query.strip().lower()}"  #redis reads only strings
     cached= redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
@@ -190,10 +188,9 @@ async def get_feed(user_id: str, query: str = ""):
     
 
 @app.post("/v1/upload_reel")
-async def upload_reel(title: str, file: UploadFile = File(...)):
+def upload_reel(title: str, file: UploadFile = File(...)):
     # 1. read file content
-    file_content = await file.read()  # read file as bytes
-    file_size = len(file_content)
+    file_content = file.file.read()  # read file as bytes (sync: this endpoint runs in a thread) # read file as bytes
     object_key = f"reels/{uuid.uuid4()}_{file.filename}"
     
     # 3. save to /tmp/ for Celery processing
@@ -216,13 +213,13 @@ async def upload_reel(title: str, file: UploadFile = File(...)):
 
 
 @app.get("/v1/celery_status/{task_id}")
-async def get_upload_status(task_id: str):
+def get_upload_status(task_id: str):
     task = AsyncResult(task_id, app=process_reel.app)  #to check status of celery task
     return {"status": task.status}   
 
 
 @app.get("/v1/reels/{reel_id}/play")
-async def get_reel_url(reel_id: str):
+def get_reel_url(reel_id: str):
     with engine.connect() as conn:
         reel = conn.execute(
             text("SELECT object_key FROM reels WHERE id = :reel_id"),
@@ -245,7 +242,7 @@ class TaskRequest(BaseModel):
     description: str
     
 @app.post("/v1/tasks")
-async def create_task(request: TaskRequest):
+def create_task(request: TaskRequest):
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=request.description
@@ -273,7 +270,7 @@ class AgentContextResponse(BaseModel):
     past_tasks: list[TaskContext]
 
 @app.post("/v1/agent/past_tasks")
-async def get_agent_context(request: AgentContextRequest):
+def get_agent_context(request: AgentContextRequest):
     
     with engine.connect() as conn:
         # get embedding of current task
@@ -313,37 +310,24 @@ async def get_agent_context(request: AgentContextRequest):
     
 
 @app.patch("/v1/tasks/{task_id}/complete")
-async def complete_task(task_id: str, user_id: str,  group_id: str = None):
+def complete_task(task_id: str, user_id: str, completed: bool = True):
     with engine.connect() as conn:
-        # get task description
-        task = conn.execute(
-            text("SELECT description FROM tasks WHERE id = :task_id"),
-            {"task_id": task_id}
+        updated = conn.execute(
+            text("""
+                UPDATE tasks SET completed = :completed
+                WHERE id = :task_id AND user_id = :user_id
+                RETURNING id
+            """),
+            {"completed": completed, "task_id": task_id, "user_id": user_id}
         ).fetchone()
-        
-        if not task:
+        if not updated:
             raise HTTPException(status_code=404, detail="Task not found")
-        
-        # mark complete in DB
-        conn.execute(
-            text("UPDATE tasks SET completed = TRUE WHERE id = :task_id"),
-            {"task_id": task_id}
-        )
         conn.commit()
-    
-    # fire Redis Stream event
-    redis_client.xadd("task_completed", {
-        "user_id": user_id,
-        "task_id": task_id,
-        "description": task[0],
-        "group_id": group_id or "",
-        "timestamp": str(datetime.now())
-    })
-    
-    return {"status": "completed"}
+    return {"status": "completed" if completed else "pending"}
+
 
 @app.get("/v1/tasks/{user_id}")
-async def get_tasks(user_id: str):
+def get_tasks(user_id: str):
     with engine.connect() as conn:
         tasks = conn.execute(
             text("SELECT id, description, completed, created_at FROM tasks WHERE user_id = :user_id"),
@@ -427,7 +411,7 @@ def match_groups(user_id: str):
 
 
 @app.post("/v1/groups/{group_id}/join")
-async def join_group(group_id: str, user_id: str):
+def join_group(group_id: str, user_id: str):
     with engine.connect() as conn:
         conn.execute(
         text("INSERT INTO group_members (group_id, user_id) VALUES (:group_id, :user_id)"),
@@ -458,7 +442,7 @@ def get_group_members(group_id: str):
 ]
       
 @app.get("/v1/groups/{group_id}/feed")
-async def get_group_feed(group_id: str):
+def get_group_feed(group_id: str):
     # check cache first
     cache_key = f"group_feed:{group_id}"
     cached = redis_client.get(cache_key)
@@ -498,7 +482,7 @@ async def get_group_feed(group_id: str):
                 redis_client.setex(cache_key, 86400, json.dumps(result))
                 
                 return result
-        except Exception as e:
+        except Exception:
             if attempt == 2:
                 raise
             engine.dispose()
@@ -512,28 +496,70 @@ async def metrics():
     )
 
 
+# one timezone for the whole app (simplification: per-user timezones can come later)
+APP_TZ = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Kolkata"))
+
 @app.post("/v1/groups/{group_id}/post")
-async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str], uncompleted_tasks: list[str] = []):
+def post_to_group(
+    group_id: str,
+    user_id: str,
+    completed_tasks: list[str],
+    uncompleted_tasks: list[str] = [],
+    completed_task_ids: list[uuid.UUID] = [],
+    uncompleted_task_ids: list[uuid.UUID] = [],
+):
+    today = datetime.now(APP_TZ).date()   # the user's day, not the server's (UTC) day
     with engine.connect() as conn:
         post_id = conn.execute(
             text("""
-                INSERT INTO group_posts (group_id, user_id, completed_tasks, uncompleted_tasks, post_date)
-                VALUES (:group_id, :user_id, :completed_tasks, :uncompleted_tasks, CURRENT_DATE)
+                INSERT INTO group_posts (
+                    group_id, user_id,
+                    completed_tasks, uncompleted_tasks,
+                    completed_task_ids, uncompleted_task_ids,
+                    post_date
+                )
+                VALUES (
+                    :group_id, :user_id,
+                    :completed_tasks, :uncompleted_tasks,
+                    CAST(:completed_task_ids AS uuid[]),
+                    CAST(:uncompleted_task_ids AS uuid[]),
+                    :today
+                )
                 RETURNING id
             """),
             {
                 "group_id": group_id,
                 "user_id": user_id,
                 "completed_tasks": completed_tasks,
-                "uncompleted_tasks": uncompleted_tasks
+                "uncompleted_tasks": uncompleted_tasks,
+                "completed_task_ids": [str(i) for i in completed_task_ids],
+                "uncompleted_task_ids": [str(i) for i in uncompleted_task_ids],
+                "today": today,
             }
         ).fetchone()[0]
+
+        # streak = days in a row the user sent a post. ONE statement checks and updates,
+        # so simultaneous posts cannot both add 1.
+        conn.execute(
+            text("""
+                UPDATE users SET
+                    streak_count = CASE
+                        WHEN last_post_date = CAST(:today AS date)     THEN streak_count      -- 2nd post today: no change
+                        WHEN last_post_date = CAST(:today AS date) - 1 THEN streak_count + 1  -- posted yesterday: continue
+                        ELSE 1                                                                -- first post, or missed a day
+                    END,
+                    last_post_date = CAST(:today AS date)
+                WHERE id = :user_id
+            """),
+            {"today": today, "user_id": user_id}
+        )
         conn.commit()
 
-    # trigger agent ONCE for all tasks combined
+    # trigger the agent ONCE for the whole post. It reads the task ids from the
+    # group_posts row, so only the post id travels in the event.
     redis_client.xadd("task_completed", {
         "user_id": user_id,
-        "task_id": str(post_id),
+        "post_id": str(post_id),
         "description": ", ".join(completed_tasks),
         "group_id": group_id,
         "timestamp": str(datetime.now())
@@ -542,7 +568,7 @@ async def post_to_group(group_id: str, user_id: str, completed_tasks: list[str],
     return {"post_id": str(post_id)}
 
 @app.get("/v1/groups/all")
-async def get_all_groups():
+def get_all_groups():
     for attempt in range(3):
         try:
             with engine.connect() as conn:
@@ -553,7 +579,7 @@ async def get_all_groups():
                     {"id": str(g[0]), "name": g[1], "description": g[2]}
                     for g in groups
                 ]}
-        except Exception as e:
+        except Exception:
             if attempt == 2:
                 raise
             engine.dispose()
@@ -564,41 +590,42 @@ async def group_stream(group_id: str):
     SSE endpoint — client connects once, server pushes signal when new post arrives.
     Frontend then calls /feed to get actual data.
     """
+    def read_counts():
+        # blocking DB work: runs in a worker thread, never on the event loop
+        with engine.connect() as conn:
+            posts = conn.execute(
+                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
+                {"group_id": group_id}
+            ).fetchone()[0]
+            reactions = conn.execute(
+                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
+                {"group_id": group_id}
+            ).fetchone()[0]
+        return posts, reactions
+
     async def event_generator():
-        # track post count to detect new posts
         last_posts = 0
         last_reactions = 0
-        
+
         while True:
             try:
-                # check if new posts in DB
-                with engine.connect() as conn:
-                    new_posts = conn.execute(
-                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
-                    {"group_id": group_id}
-                    ).fetchone()[0]
-            
-                    new_reactions = conn.execute(
-                    text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
-                    {"group_id": group_id}
-                    ).fetchone()[0]
-                
+                new_posts, new_reactions = await asyncio.to_thread(read_counts)
+
                 if new_posts > last_posts or new_reactions > last_reactions:
                     last_posts = new_posts
                     last_reactions = new_reactions
-                    yield f"data: new_post\n\n"
-                
+                    yield "data: new_post\n\n"
+
             except Exception as e:
                 print(f"SSE error: {e}")
-            
-            # check every 3 seconds
+
             await asyncio.sleep(3)
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no" 
+            "X-Accel-Buffering": "no"
         }
     )

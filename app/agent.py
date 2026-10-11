@@ -21,7 +21,6 @@ langfuse = Langfuse(
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-from sqlalchemy.pool import NullPool
 
 engine = create_engine(
     os.getenv("DATABASE_URL")
@@ -47,39 +46,43 @@ def cosine_distance(a, b):
     b = np.array(b)
     return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-def get_semantic_cache(description: str):
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=description
-    )
-    embedding = response.data[0].embedding # list of float
-    
-    cached_keys = redis_client.keys("reaction_cache:*") # list of bytes - # → [b"reaction_cache:30min run", b"reaction_cache:HIIT workout"]
-    
-    for key in cached_keys:
-        cached = json.loads(redis_client.get(key)) # {"embedding": [...], "reaction": "Great job!"}
-        dist = cosine_distance(embedding, cached["embedding"])
-        if dist < SEMANTIC_CACHE_THRESHOLD:
-            print(f"Semantic cache hit — distance: {dist:.4f}")
-            return cached["reaction"]
-    
-    return None
+def cache_prefix(user_id: str) -> str:
+    # every user gets their own namespace, so one user never reads another's reactions
+    return f"reaction_cache:{user_id}:"
 
-def set_semantic_cache(description: str, reaction: str):
+def get_semantic_cache(user_id: str, description: str):
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=description
     )
     embedding = response.data[0].embedding
-    key = f"reaction_cache:{description[:50]}"
+
+    # only THIS user's entries: the key starts with their id
+    for key in redis_client.scan_iter(match=f"reaction_cache:{user_id}:*", count=100):
+        raw = redis_client.get(key)
+        if raw is None:          # expired between the scan and the get
+            continue
+        cached = json.loads(raw)
+        dist = cosine_distance(embedding, cached["embedding"])
+        if dist < SEMANTIC_CACHE_THRESHOLD:
+            print(f"Semantic cache hit — distance: {dist:.4f}")
+            return cached["reaction"]
+
+    return None
+
+def set_semantic_cache(user_id: str, description: str, reaction: str):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=description
+    )
+    embedding = response.data[0].embedding
+    key = f"reaction_cache:{user_id}:{description[:50]}"
     redis_client.setex(
         key,
         3600,
-        json.dumps({
-            "embedding": embedding,
-            "reaction": reaction
-        })
+        json.dumps({"embedding": embedding, "reaction": reaction})
     )
+
 def call_gpt_with_retry(model: str, messages: list, max_retries: int = 3): 
     for attempt in range(max_retries):
         try:
@@ -99,7 +102,7 @@ def call_gpt_with_retry(model: str, messages: list, max_retries: int = 3):
 # state definition
 class AgentState(TypedDict):
     user_id: str
-    task_id: str
+    post_id: str
     description: str
     past_tasks: list
     reaction: object
@@ -132,51 +135,65 @@ class AgentReaction(BaseModel):
             raise ValueError("Only one emoji allowed")
         return v
 
+PAST_PER_TASK = 2   # similar past tasks fetched for each of today's tasks
+
 def retrieve_context(state: AgentState) -> AgentState:
+    state["past_tasks"] = []
     with engine.connect() as conn:
-        task = conn.execute(
-            text("SELECT embedding FROM tasks WHERE id = :task_id"),
-            {"task_id": state["task_id"]}
+        post = conn.execute(
+            text("SELECT completed_task_ids FROM group_posts WHERE id = :post_id"),
+            {"post_id": state["post_id"]}
         ).fetchone()
-        
-        if not task or task[0] is None:
-            state["past_tasks"] = []
+        task_ids = [str(i) for i in (post[0] or [])] if post else []
+        if not task_ids:
             return state
-        
-        current_embedding = task[0]
-        results = conn.execute(
+
+        embeddings = conn.execute(
             text("""
-                SELECT id, description, completed, created_at
-                FROM tasks
-                WHERE user_id = :user_id 
-                AND completed = TRUE
+                SELECT embedding FROM tasks
+                WHERE id = ANY(CAST(:task_ids AS uuid[]))
+                AND user_id = :user_id
                 AND embedding IS NOT NULL
-                AND id != :task_id
-                ORDER BY embedding <=> :embedding
-                LIMIT 5
             """),
-            {
-                "user_id": state["user_id"],
-                "embedding": str(current_embedding),
-                "task_id": state["task_id"]
-            }
+            {"task_ids": task_ids, "user_id": state["user_id"]}
         ).fetchall()
-        
-        state["past_tasks"] = [
-            {
-                "id": str(row[0]),
-                "description": row[1],
-                "completed": row[2],
-                "created_at": str(row[3])
-            }
-            for row in results
-        ]
-    
+
+        past = {}   # past task id -> task. A dict holds each id once, so duplicates disappear.
+        for (embedding,) in embeddings:
+            rows = conn.execute(
+                text("""
+                    SELECT id, description, completed, created_at
+                    FROM tasks
+                    WHERE user_id = :user_id
+                    AND completed = TRUE
+                    AND embedding IS NOT NULL
+                    AND id <> ALL(CAST(:task_ids AS uuid[]))
+                    ORDER BY embedding <=> :embedding
+                    LIMIT :k
+                """),
+                {
+                    "embedding": str(embedding),
+                    "user_id": state["user_id"],
+                    "task_ids": task_ids,
+                    "k": PAST_PER_TASK,
+                }
+            ).fetchall()
+            for row in rows:
+                past[row[0]] = {
+                    "id": str(row[0]),
+                    "description": row[1],
+                    "completed": row[2],
+                    "created_at": str(row[3]),
+                }
+
+        state["past_tasks"] = list(past.values())
+
     return state
+
 @observe(name="generate_reaction",as_type="agent")
 def generate_reaction(state: AgentState) -> AgentState:
     # check semantic cache 
-    cached = get_semantic_cache(state["description"])
+    cached = get_semantic_cache(state["user_id"], state["description"])
     if cached:
         state["reaction"] = AgentReaction(
             message=cached,
@@ -193,10 +210,12 @@ def generate_reaction(state: AgentState) -> AgentState:
     reaction = None
 
     with engine.connect() as conn:
-        streak_count = conn.execute(
-        text("SELECT COUNT(*) FROM tasks WHERE user_id = :user_id AND completed = TRUE"),
-        {"user_id": state["user_id"]}
-        ).fetchone()[0]
+        # days in a row the user has posted; already includes today's post
+        row = conn.execute(
+            text("SELECT streak_count FROM users WHERE id = :user_id"),
+            {"user_id": state["user_id"]}
+        ).fetchone()
+        streak_count = (row[0] or 0) if row else 0
     primary_model = get_model(streak_count)
 
     FALLBACK_CHAIN = [primary_model, "gpt-4o-mini"] if primary_model == "gpt-4o" else ["gpt-4o-mini", "gpt-4o"]
@@ -221,62 +240,18 @@ def generate_reaction(state: AgentState) -> AgentState:
         tone=ToneEnum.motivational
     )
 
-    set_semantic_cache(state["description"], reaction.message)
+    set_semantic_cache(state["user_id"], state["description"], reaction.message)
     state["reaction"] = reaction
     return state
 
-
 def store_reaction(state: AgentState) -> AgentState:
     with engine.connect() as conn:
-        specific_group_id = state.get("group_id", "")
-        
-        if specific_group_id:
-            conn.execute(
-                text("""
-                    UPDATE group_posts 
-                    SET agent_reaction = :reaction
-                    WHERE id = (
-                        SELECT id FROM group_posts
-                        WHERE group_id = :group_id 
-                        AND user_id = :user_id
-                        AND agent_reaction IS NULL
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )
-                """),
-                {
-                    "reaction": state["reaction"].message,
-                    "group_id": specific_group_id,
-                    "user_id": state["user_id"]
-                }
-            )
-        else:
-            groups = conn.execute(
-                text("SELECT group_id FROM group_members WHERE user_id = :user_id"),
-                {"user_id": state["user_id"]}
-            ).fetchall()
-            for group in groups:
-                conn.execute(
-                    text("""
-                        UPDATE group_posts 
-                        SET agent_reaction = :reaction
-                        WHERE id = (
-                            SELECT id FROM group_posts
-                            WHERE group_id = :group_id 
-                            AND user_id = :user_id
-                            AND agent_reaction IS NULL
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        )
-                    """),
-                    {
-                        "reaction": state["reaction"].message,
-                        "group_id": str(group[0]),
-                        "user_id": state["user_id"]
-                    }
-                )
+        conn.execute(
+            text("UPDATE group_posts SET agent_reaction = :reaction WHERE id = :post_id"),
+            {"reaction": state["reaction"].message, "post_id": state["post_id"]}
+        )
         conn.commit()
-    redis_client.delete(f"group_feed:{specific_group_id}")
+    redis_client.delete(f"group_feed:{state['group_id']}")
     return state
 
 def build_agent():

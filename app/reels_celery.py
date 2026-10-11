@@ -16,7 +16,7 @@ celery_app = Celery(
     backend=os.getenv("REDIS_URL")
 )
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=5)
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=5,acks_late=True, reject_on_worker_lost=True)
 def process_reel(self, reel_id: str, file_path: str):
     try:
         # step 1: transcribe with Whisper
@@ -73,20 +73,21 @@ def process_reel(self, reel_id: str, file_path: str):
         # step 5: store in DB
         with engine.connect() as conn:
             conn.execute(
-                text("""
-                    UPDATE reels 
-                    SET embedding = :embedding,
-                        tags = :tags,
-                        summary = :summary
-                    WHERE id = :reel_id
-                """),
-                {
-                    "embedding": str(embedding),
-                    "tags": tags,
-                    "summary": transcript_text[:500],
-                    "reel_id": reel_id
-                }
-            )
+            text("""
+        UPDATE reels
+        SET embedding = :embedding,
+            tags = :tags,
+            summary = :summary,
+            search_vector = to_tsvector('english', coalesce(title, '') || ' ' || :summary)
+        WHERE id = :reel_id
+    """),
+    {
+        "embedding": str(embedding),
+        "tags": tags,
+        "summary": transcript_text[:500],
+        "reel_id": reel_id,
+    },
+    )
             conn.commit()
 
         os.remove(file_path)
