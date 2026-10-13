@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 from middleware import GuardrailMiddleware
 from metrics import requests_total, feed_latency
+from guardrails import check_injection
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from reels_celery import process_reel
 from storage import get_file_url, ensure_bucket_exists
@@ -83,6 +84,11 @@ async def onboard(request: OnboardRequest):
         user_id = result.fetchone()[0]
     return {"user_id": str(user_id)}
 
+def reject_if_injection(*texts):
+    for t in texts:
+        if t and check_injection(t):
+            raise HTTPException(status_code=400, detail="Invalid input detected")
+        
 @app.get("/v1/feed_return")
 def get_feed(user_id: str, query: str = ""):
     requests_total.labels(endpoint="feed").inc()
@@ -189,6 +195,7 @@ def get_feed(user_id: str, query: str = ""):
 
 @app.post("/v1/upload_reel")
 def upload_reel(title: str, file: UploadFile = File(...)):
+    reject_if_injection(title)
     # 1. read file content
     file_content = file.file.read()  # read file as bytes (sync: this endpoint runs in a thread) # read file as bytes
     object_key = f"reels/{uuid.uuid4()}_{file.filename}"
@@ -507,7 +514,8 @@ def post_to_group(
     uncompleted_tasks: list[str] = [],
     completed_task_ids: list[uuid.UUID] = [],
     uncompleted_task_ids: list[uuid.UUID] = [],
-):
+):  
+    reject_if_injection(*completed_tasks, *uncompleted_tasks)
     today = datetime.now(APP_TZ).date()   # the user's day, not the server's (UTC) day
     with engine.connect() as conn:
         post_id = conn.execute(
