@@ -4,6 +4,7 @@ from openai import OpenAI
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
+import re
 import json
 from pydantic import BaseModel, field_validator
 from enum import Enum
@@ -31,9 +32,10 @@ SEMANTIC_CACHE_THRESHOLD = 0.15
 MILESTONE_STREAKS = [7, 14, 21, 30, 60, 100]
 BANNED_WORDS = ["hate", "kill", "stupid", "idiot", "terrible", "awful"]
 
+BANNED_PATTERN = re.compile(r"\b(?:" + "|".join(BANNED_WORDS) + r")", re.IGNORECASE)
+
 def content_filter(text: str) -> bool:
-    text_lower = text.lower()
-    return any(word in text_lower for word in BANNED_WORDS)
+    return bool(BANNED_PATTERN.search(text))
 
 def get_model(streak_count: int) -> str:
     if streak_count in MILESTONE_STREAKS:
