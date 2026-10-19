@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
 from openai import OpenAI
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
@@ -22,6 +21,7 @@ from storage import get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
 from zoneinfo import ZoneInfo
+import redis.asyncio as aioredis
 # then load_dotenv
 load_dotenv()
 
