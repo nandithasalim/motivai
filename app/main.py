@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
 from openai import OpenAI
 from sqlalchemy import create_engine, text
 from pydantic import BaseModel
@@ -22,6 +21,7 @@ from storage import get_file_url, ensure_bucket_exists
 import redis
 import numpy as np
 from zoneinfo import ZoneInfo
+import redis.asyncio as aioredis
 # then load_dotenv
 load_dotenv()
 
@@ -573,6 +573,10 @@ def post_to_group(
         "timestamp": str(datetime.now())
     })
     redis_client.delete(f"group_feed:{group_id}")
+    try:
+        redis_client.publish(f"group_events:{group_id}", "new_post")
+    except Exception:
+        pass
     return {"post_id": str(post_id)}
 
 @app.get("/v1/groups/all")
@@ -594,46 +598,27 @@ def get_all_groups():
 
 @app.get("/v1/groups/{group_id}/stream")
 async def group_stream(group_id: str):
-    """
-    SSE endpoint — client connects once, server pushes signal when new post arrives.
-    Frontend then calls /feed to get actual data.
-    """
-    def read_counts():
-        # blocking DB work: runs in a worker thread, never on the event loop
-        with engine.connect() as conn:
-            posts = conn.execute(
-                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id"),
-                {"group_id": group_id}
-            ).fetchone()[0]
-            reactions = conn.execute(
-                text("SELECT COUNT(*) FROM group_posts WHERE group_id = :group_id AND agent_reaction IS NOT NULL"),
-                {"group_id": group_id}
-            ).fetchone()[0]
-        return posts, reactions
-
     async def event_generator():
-        last_posts = 0
-        last_reactions = 0
-
-        while True:
-            try:
-                new_posts, new_reactions = await asyncio.to_thread(read_counts)
-
-                if new_posts > last_posts or new_reactions > last_reactions:
-                    last_posts = new_posts
-                    last_reactions = new_reactions
+        client = aioredis.from_url(os.getenv("REDIS_URL"))
+        pubsub = client.pubsub()
+        await pubsub.subscribe(f"group_events:{group_id}")
+        try:
+            yield "data: connected\n\n"
+            while True:
+                msg = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=15
+                )
+                if msg:
                     yield "data: new_post\n\n"
-
-            except Exception as e:
-                print(f"SSE error: {e}")
-
-            await asyncio.sleep(3)
+                else:
+                    yield ": keepalive\n\n"
+        finally:
+            await pubsub.unsubscribe()
+            await pubsub.close()
+            await client.close()
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no"
-        }
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

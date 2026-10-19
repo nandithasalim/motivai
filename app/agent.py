@@ -254,6 +254,10 @@ def store_reaction(state: AgentState) -> AgentState:
         )
         conn.commit()
     redis_client.delete(f"group_feed:{state['group_id']}")
+    try:
+        redis_client.publish(f"group_events:{state['group_id']}", "new_reaction")
+    except Exception:
+        pass
     return state
 
 def build_agent():
